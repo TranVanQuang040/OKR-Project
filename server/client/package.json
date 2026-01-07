@@ -1,0 +1,24 @@
+{
+  "name": "okr-enterprise-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hệ thống quản trị OKR doanh nghiệp hiện đại sử dụng React, Tailwind và AI Gemini",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.0",
+    "recharts": "^2.10.3",
+    "@google/genai": "^1.34.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.3.3"
+  }
+}

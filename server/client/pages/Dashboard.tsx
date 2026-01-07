@@ -1,0 +1,136 @@
+
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useAuth } from '../context/AuthContext';
+import { Objective } from '../types';
+import { dataService } from '../services/dataService';
+
+const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+export const Dashboard: React.FC = () => {
+  const { selectedPeriod } = useAuth();
+  const [okrs, setOkrs] = useState<Objective[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    const d = await dataService.getOKRs();
+    setOkrs(d);
+    setIsLoading(false);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const filteredOkrs = okrs.filter(o => 
+    o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year
+  );
+
+  const avgProgress = filteredOkrs.length 
+    ? Math.round(filteredOkrs.reduce((acc, curr) => acc + curr.progress, 0) / filteredOkrs.length)
+    : 0;
+
+  const depts = Array.from(new Set(filteredOkrs.map(o => o.department)));
+  const deptData = depts.map(d => {
+    const deptOkrs = filteredOkrs.filter(o => o.department === d);
+    const progress = Math.round(deptOkrs.reduce((acc, curr) => acc + curr.progress, 0) / (deptOkrs.length || 1));
+    return { name: d, progress };
+  });
+
+  const stats = [
+    { label: 'Tổng mục tiêu', value: filteredOkrs.length.toString(), icon: 'track_changes', color: 'bg-indigo-500' },
+    { label: 'Key Results', value: filteredOkrs.reduce((acc, curr) => acc + (curr.keyResults?.length || 0), 0).toString(), icon: 'checklist', color: 'bg-emerald-500' },
+    { label: 'Tiến độ trung bình', value: `${avgProgress}%`, icon: 'trending_up', color: 'bg-amber-500' },
+    { label: 'Kỳ báo cáo', value: selectedPeriod.quarter + ' ' + selectedPeriod.year, icon: 'calendar_today', color: 'bg-rose-500' },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-800">Tổng quan {selectedPeriod.quarter} / {selectedPeriod.year}</h2>
+        <p className="text-slate-500">Dữ liệu từ hệ thống quản trị OKR nội bộ.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {stats.map((stat, i) => (
+          <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+            <div className={`${stat.color} p-3 rounded-xl text-white`}>
+              <span className="material-icons">{stat.icon}</span>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-500">{stat.label}</p>
+              <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-bold mb-6 flex items-center">
+            <span className="material-icons mr-2 text-indigo-600">bar_chart</span>
+            Tiến độ theo phòng ban
+          </h3>
+          <div className="h-80 w-full">
+            {deptData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deptData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip cursor={{fill: '#f8fafc'}} />
+                  <Bar dataKey="progress" radius={[4, 4, 0, 0]}>
+                    {deptData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400 border border-dashed rounded-xl">
+                Không có dữ liệu cho kỳ này
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-bold mb-6 flex items-center">
+            <span className="material-icons mr-2 text-indigo-600">pie_chart</span>
+            Phân bổ trạng thái
+          </h3>
+          <div className="space-y-4">
+            {[
+              { label: 'Hoàn thành tốt (>70%)', value: filteredOkrs.filter(o => o.progress >= 70).length, color: 'bg-emerald-500', total: filteredOkrs.length },
+              { label: 'Cần nỗ lực (30-70%)', value: filteredOkrs.filter(o => o.progress >= 30 && o.progress < 70).length, color: 'bg-amber-500', total: filteredOkrs.length },
+              { label: 'Rủi ro cao (<30%)', value: filteredOkrs.filter(o => o.progress < 30).length, color: 'bg-rose-500', total: filteredOkrs.length },
+            ].map((status, i) => (
+              <div key={i} className="space-y-2">
+                <div className="flex justify-between text-sm font-medium">
+                  <span className="text-slate-600 text-xs">{status.label}</span>
+                  <span className="text-slate-800 font-bold">{status.value}</span>
+                </div>
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full ${status.color}`} style={{ width: `${status.total ? (status.value / status.total) * 100 : 0}%` }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-8 p-4 bg-indigo-50 rounded-xl">
+            <p className="text-xs text-indigo-700 leading-relaxed font-medium">
+              💡 <span className="font-bold">Gợi ý từ AI:</span> {filteredOkrs.length > 0 ? "Tiến độ đang được duy trì ổn định. Hãy ưu tiên các mục tiêu có tiến độ dưới 50%." : "Chưa có mục tiêu nào được thiết lập cho kỳ này."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

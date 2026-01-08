@@ -49,6 +49,19 @@ export const userService = {
     return normalizeId(res);
   },
 
+  // Wrapper cho code cũ: tạo mới user
+  createUser: async (user: Partial<User>) => {
+    // Đảm bảo không có id khi tạo mới
+    const { id, ...rest } = user;
+    return userService.saveUser(rest);
+  },
+
+  // Wrapper cho code cũ: cập nhật user
+  updateUser: async (id: string, user: Partial<User>) => {
+    // Đảm bảo id đúng
+    return userService.saveUser({ ...user, id });
+  },
+
   deleteUser: async (id: string) => {
     return await apiRequest(`/users/${id}`, { method: 'DELETE' });
   },

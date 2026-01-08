@@ -42,6 +42,13 @@ export const Users: React.FC = () => {
     fetchDepartments();
   }, []);
 
+  // Set department mặc định khi departments load xong và có currentUser
+  useEffect(() => {
+    if (departments.length > 0 && currentUser?.role === 'MANAGER' && currentUser.department && !formData.department) {
+      setFormData(prev => ({ ...prev, department: currentUser.department }));
+    }
+  }, [departments, currentUser, formData.department]);
+
   // Filter users: Admin thấy hết, Manager/Employee chỉ thấy cùng phòng
   const filteredUsers = useMemo(() => {
     return allUsers.filter(u => {
@@ -51,12 +58,14 @@ export const Users: React.FC = () => {
   }, [allUsers, currentUser]);
 
   const resetForm = () => {
-    setFormData({ ...initialFormState, department: currentUser?.department || '' });
+    setFormData({ ...initialFormState });
     setEditingUserId(null);
   };
 
   const openCreateModal = () => {
     resetForm();
+    // Không set department mặc định để tránh dùng data cũ từ localStorage
+    // Department sẽ được chọn từ select sau khi departments load
     setShowModal(true);
   };
 
@@ -67,7 +76,7 @@ export const Users: React.FC = () => {
       email: u.email,
       password: '', // Không hiển thị password cũ
       role: u.role as UserRole,
-      department: u.department,
+      department: u.department, // Backend trả về tên phòng ban
       avatar: u.avatar || ''
     });
     setShowModal(true);
@@ -82,7 +91,9 @@ export const Users: React.FC = () => {
         // --- SỬA USER ---
         const payload: any = { ...formData };
         if (!payload.password) delete payload.password;
-        
+        // Xóa trường không cần thiết nếu có
+        delete payload.id;
+        delete payload._id;
         await userService.updateUser(editingUserId, payload);
       } else {
         // --- TẠO MỚI USER ---
@@ -92,18 +103,35 @@ export const Users: React.FC = () => {
           return;
         }
 
+        if (!formData.department) {
+          alert("Vui lòng chọn phòng ban.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Đảm bảo department là tên phòng ban, không phải ID
+        const selectedDept = departments.find(dep => dep.name === formData.department);
+        if (!selectedDept && formData.department) {
+          alert("Phòng ban không hợp lệ. Vui lòng chọn lại.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (departments.length === 0) {
+          alert("Đang tải danh sách phòng ban, vui lòng thử lại sau.");
+          setIsSubmitting(false);
+          return;
+        }
+
         const newUserPayload = {
           ...formData,
-          supervisorId: currentUser?.id
+          // Chỉ set supervisorId nếu là MANAGER tạo EMPLOYEE
+          supervisorId: currentUser?.role === 'MANAGER' && formData.role === 'EMPLOYEE' 
+            ? currentUser.id 
+            : undefined
         };
 
-        if (currentUser?.role === 'ADMIN') {
-          // Admin gọi trực tiếp service
-          await userService.createUser(newUserPayload);
-        } else {
-          // Dùng hàm từ context
-          await createUser(newUserPayload);
-        }
+        await userService.createUser(newUserPayload);
       }
 
       await refreshUsers();
@@ -214,7 +242,9 @@ export const Users: React.FC = () => {
                        {u.role}
                      </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{u.department}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    {u.department || '---'}
+                  </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{supervisorName}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end items-center space-x-2">
@@ -302,22 +332,19 @@ export const Users: React.FC = () => {
                 <select 
                   required
                   className="w-full p-2 border border-slate-200 rounded-lg outline-none disabled:bg-slate-100"
-                  disabled={currentUser?.role !== 'ADMIN'}
+                  disabled={currentUser?.role !== 'ADMIN' || departments.length === 0}
                   value={formData.department}
                   onChange={e => setFormData({...formData, department: e.target.value})}
                 >
-                   <option value="">-- Chọn phòng --</option>
+                   <option value="">
+                     {departments.length === 0 ? 'Đang tải danh sách phòng ban...' : '-- Chọn phòng --'}
+                   </option>
                    {departments.map(dep => {
-                     // Sử dụng getUserId để lấy ID phòng ban an toàn nếu cần, hoặc dùng _id/id trực tiếp
                      const depId = dep.id || dep._id;
                      return (
                        <option key={depId} value={dep.name}>{dep.name}</option>
                      )
                    })}
-                   {/* Fallback nếu danh sách rỗng hoặc đang load mà user có sẵn department */}
-                   {departments.length === 0 && formData.department && (
-                     <option value={formData.department}>{formData.department}</option>
-                   )}
                 </select>
               </div>
             </div>

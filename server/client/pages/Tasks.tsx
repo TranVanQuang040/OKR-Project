@@ -3,11 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Task, Objective } from '../types';
 import { dataService } from '../services/dataService';
+import * as myOkrService from '../services/myOkrService';
 
 export const Tasks: React.FC = () => {
-  const { user, allUsers } = useAuth();
+  const { user, allUsers, selectedPeriod } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [okrs, setOkrs] = useState<Objective[]>([]);
+  const [myOkrs, setMyOkrs] = useState<Objective[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -17,6 +19,7 @@ export const Tasks: React.FC = () => {
   const getKrTitle = (krId: string) => {
     if (!krId) return 'N/A';
     
+    // Tìm trong OKRs
     for (const o of okrs) {
       if (o.keyResults) {
         for (const kr of o.keyResults) {
@@ -26,6 +29,18 @@ export const Tasks: React.FC = () => {
         }
       }
     }
+    
+    // Tìm trong myOKRs
+    for (const o of myOkrs) {
+      if (o.keyResults) {
+        for (const kr of o.keyResults) {
+          if (kr.id === krId || kr._id === krId) {
+            return kr.title;
+          }
+        }
+      }
+    }
+    
     return 'N/A';
   };
 
@@ -33,12 +48,30 @@ export const Tasks: React.FC = () => {
     setIsLoading(true);
     const t = await dataService.getTasks();
     const o = await dataService.getOKRs();
+    
+    // Lấy myOKRs với period
+    let m: Objective[] = [];
+    try {
+      const myOKRsData = await myOkrService.getMyOKRs({ 
+        quarter: selectedPeriod.quarter, 
+        year: selectedPeriod.year 
+      });
+      m = (myOKRsData || []).map((okr: any) => ({
+        ...okr,
+        id: okr._id || okr.id,
+        keyResults: (okr.keyResults || []).map((kr: any) => ({ ...kr, id: kr._id || kr.id }))
+      }));
+    } catch (err) {
+      // Fallback - không hiển thị lỗi nếu không lấy được myOKRs
+    }
+    
     setTasks(t);
     setOkrs(o);
+    setMyOkrs(m);
     setIsLoading(false);
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [selectedPeriod]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +110,7 @@ export const Tasks: React.FC = () => {
     try {
       await dataService.deleteTask(id);
       await loadData();
+      window.dispatchEvent(new CustomEvent('okrUpdated'));
     } catch (err: any) {
       alert(err?.message || 'Không thể xóa công việc');
     } finally {
@@ -189,10 +223,19 @@ export const Tasks: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết Key Result</label>
                 <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.krId} onChange={e => setFormData({...formData, krId: e.target.value})}>
-                  <option value="">-- Chọn KR liên quan --</option>
+                  <option value="">-- Mục tiêu OKR --</option>
                   {okrs.map(o => o.keyResults && o.keyResults.map(kr => (
                     <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
                   )))}
+                  {myOkrs.length > 0 && (
+                    <>
+                      <optgroup label="---Cá nhân (My OKRs)---">
+                        {myOkrs.map(o => o.keyResults && o.keyResults.map(kr => (
+                          <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
+                        )))}
+                      </optgroup>
+                    </>
+                  )}
                 </select>
               </div>
             </div>

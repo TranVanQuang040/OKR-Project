@@ -2,31 +2,45 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { Objective } from '../types';
+import { Objective, MyObjective } from '../types';
 import { dataService } from '../services/dataService';
+import { getMyOKRs } from '../services/myOkrService';
 
 const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export const Dashboard: React.FC = () => {
   const { selectedPeriod } = useAuth();
   const [okrs, setOkrs] = useState<Objective[]>([]);
+  const [myOkrs, setMyOkrs] = useState<MyObjective[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
     setIsLoading(true);
-    const d = await dataService.getOKRs();
+    const [d, myD] = await Promise.all([
+      dataService.getOKRs(),
+      getMyOKRs({ quarter: selectedPeriod.quarter, year: selectedPeriod.year })
+    ]);
     setOkrs(d);
+    setMyOkrs(myD);
     setIsLoading(false);
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [selectedPeriod]);
 
   const filteredOkrs = okrs.filter(o => 
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year
   );
 
+  const filteredMyOkrs = myOkrs.filter(o => 
+    o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year
+  );
+
   const avgProgress = filteredOkrs.length 
     ? Math.round(filteredOkrs.reduce((acc, curr) => acc + curr.progress, 0) / filteredOkrs.length)
+    : 0;
+
+  const myAvgProgress = filteredMyOkrs.length 
+    ? Math.round(filteredMyOkrs.reduce((acc, curr) => acc + (curr.keyResults.reduce((sum, kr) => sum + kr.progress, 0) / curr.keyResults.length || 0), 0) / filteredMyOkrs.length)
     : 0;
 
   const depts = Array.from(new Set(filteredOkrs.map(o => o.department)));
@@ -41,6 +55,8 @@ export const Dashboard: React.FC = () => {
     { label: 'Key Results', value: filteredOkrs.reduce((acc, curr) => acc + (curr.keyResults?.length || 0), 0).toString(), icon: 'checklist', color: 'bg-emerald-500' },
     { label: 'Tiến độ trung bình', value: `${avgProgress}%`, icon: 'trending_up', color: 'bg-amber-500' },
     { label: 'Kỳ báo cáo', value: selectedPeriod.quarter + ' ' + selectedPeriod.year, icon: 'calendar_today', color: 'bg-rose-500' },
+    { label: 'My OKRs', value: filteredMyOkrs.length.toString(), icon: 'person', color: 'bg-purple-500' },
+    { label: 'Tiến độ cá nhân', value: `${myAvgProgress}%`, icon: 'account_circle', color: 'bg-cyan-500' },
   ];
 
   if (isLoading) {
@@ -58,7 +74,7 @@ export const Dashboard: React.FC = () => {
         <p className="text-slate-500">Dữ liệu từ hệ thống quản trị OKR nội bộ.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
             <div className={`${stat.color} p-3 rounded-xl text-white`}>
@@ -124,11 +140,38 @@ export const Dashboard: React.FC = () => {
             ))}
           </div>
           
-          <div className="mt-8 p-4 bg-indigo-50 rounded-xl">
-            <p className="text-xs text-indigo-700 leading-relaxed font-medium">
-              💡 <span className="font-bold">Gợi ý từ AI:</span> {filteredOkrs.length > 0 ? "Tiến độ đang được duy trì ổn định. Hãy ưu tiên các mục tiêu có tiến độ dưới 50%." : "Chưa có mục tiêu nào được thiết lập cho kỳ này."}
-            </p>
-          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className="text-lg font-bold mb-6 flex items-center">
+          <span className="material-icons mr-2 text-purple-600">person</span>
+          Mục tiêu cá nhân của tôi
+        </h3>
+        <div className="space-y-4">
+          {filteredMyOkrs.length > 0 ? (
+            filteredMyOkrs.map((okr) => {
+              const progress = okr.keyResults.length > 0 ? Math.round(okr.keyResults.reduce((sum, kr) => sum + kr.progress, 0) / okr.keyResults.length) : 0;
+              return (
+                <div key={okr.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-slate-800">{okr.title}</h4>
+                    <p className="text-sm text-slate-500">{okr.keyResults.length} Key Results</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-slate-800">{progress}%</div>
+                    <div className="w-20 h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-500" style={{ width: `${progress}%` }}></div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-center text-slate-400 py-8">
+              Chưa có mục tiêu cá nhân nào cho kỳ này
+            </div>
+          )}
         </div>
       </div>
     </div>

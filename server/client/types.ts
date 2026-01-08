@@ -26,7 +26,7 @@ export interface Task {
 }
 
 export interface KeyResult {
-  id: string;
+  id?: string;
   title: string;
   currentValue: number;
   targetValue: number;
@@ -49,6 +49,20 @@ export interface Objective {
   progress: number;
   keyResults: KeyResult[];
   createdAt: string;
+}
+
+export interface MyObjective {
+  id: string;
+  title: string;
+  ownerId: string;
+  ownerName: string;
+  department: string;
+  quarter: string;
+  year: number;
+  status: string;
+  keyResults: KeyResult[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Department {

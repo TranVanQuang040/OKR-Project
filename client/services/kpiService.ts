@@ -1,6 +1,15 @@
 import { apiRequest } from './apiClient';
 import { KPI } from '../types';
 
+const normalizeId = (item: any): KPI => {
+    if (!item) return item;
+    const normalized = { ...item };
+    if (normalized._id && !normalized.id) {
+        normalized.id = normalized._id;
+    }
+    return normalized;
+};
+
 export async function getKPIs(params?: {
     type?: string;
     department?: string;
@@ -14,40 +23,47 @@ export async function getKPIs(params?: {
     const qs = Object.keys(filteredParams).length > 0
         ? `?${new URLSearchParams(Object.entries(filteredParams).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}`
         : '';
-    return apiRequest(`/kpis${qs}`);
+    const res = await apiRequest(`/kpis${qs}`);
+    return Array.isArray(res) ? res.map(normalizeId) : res;
 }
 
 export async function getDepartmentKPIs(department: string): Promise<KPI[]> {
-    return apiRequest(`/kpis/department/${department}`);
+    const res = await apiRequest(`/kpis/department/${department}`);
+    return Array.isArray(res) ? res.map(normalizeId) : res;
 }
 
 export async function getPersonalKPIs(userId: string): Promise<KPI[]> {
-    return apiRequest(`/kpis/personal/${userId}`);
+    const res = await apiRequest(`/kpis/personal/${userId}`);
+    return Array.isArray(res) ? res.map(normalizeId) : res;
 }
 
 export async function createKPI(payload: Partial<KPI>): Promise<KPI> {
-    return apiRequest('/kpis', {
+    const res = await apiRequest('/kpis', {
         method: 'POST',
         body: JSON.stringify(payload)
     });
+    return normalizeId(res);
 }
 
 export async function getKPI(id: string): Promise<KPI> {
-    return apiRequest(`/kpis/${id}`);
+    const res = await apiRequest(`/kpis/${id}`);
+    return normalizeId(res);
 }
 
 export async function updateKPI(id: string, payload: Partial<KPI>): Promise<KPI> {
-    return apiRequest(`/kpis/${id}`, {
+    const res = await apiRequest(`/kpis/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload)
     });
+    return normalizeId(res);
 }
 
 export async function updateKPIProgress(id: string, currentValue: number): Promise<KPI> {
-    return apiRequest(`/kpis/${id}/progress`, {
+    const res = await apiRequest(`/kpis/${id}/progress`, {
         method: 'PATCH',
         body: JSON.stringify({ currentValue })
     });
+    return normalizeId(res);
 }
 
 export async function deleteKPI(id: string): Promise<void> {

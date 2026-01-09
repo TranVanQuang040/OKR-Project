@@ -8,6 +8,7 @@ export interface User {
   password?: string;
   role: UserRole;
   department: string;
+  position?: string;
   avatar: string;
   supervisorId?: string;
 }

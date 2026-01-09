@@ -9,12 +9,12 @@ const getUserId = (user: any): string => user?.id || user?._id || '';
 
 export const Users: React.FC = () => {
   const { user: currentUser, allUsers, createUser, refreshUsers, logout } = useAuth();
-  
+
   const [showModal, setShowModal] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  
+
   // State lưu danh sách phòng ban fetch từ API
   const [departments, setDepartments] = useState<any[]>([]);
 
@@ -24,6 +24,7 @@ export const Users: React.FC = () => {
     password: '',
     role: 'EMPLOYEE' as UserRole,
     department: currentUser?.department || '',
+    position: '',
     avatar: ''
   };
 
@@ -68,6 +69,7 @@ export const Users: React.FC = () => {
       password: '', // Không hiển thị password cũ
       role: u.role as UserRole,
       department: u.department,
+      position: u.position || '',
       avatar: u.avatar || ''
     });
     setShowModal(true);
@@ -130,7 +132,7 @@ export const Users: React.FC = () => {
 
   const handleDelete = async (u: any) => {
     if (!confirm(`Bạn có chắc muốn xóa tài khoản ${u.name}?`)) return;
-    
+
     const targetId = getUserId(u);
     if (!targetId) {
       alert('Không tìm thấy ID người dùng.');
@@ -166,7 +168,7 @@ export const Users: React.FC = () => {
           )}
         </div>
         {!isRestricted && (
-          <button 
+          <button
             onClick={openCreateModal}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center space-x-2 shadow-lg shadow-indigo-100 transition-colors"
           >
@@ -183,6 +185,7 @@ export const Users: React.FC = () => {
               <th className="px-6 py-4">Họ tên</th>
               <th className="px-6 py-4">Vai trò</th>
               <th className="px-6 py-4">Phòng ban</th>
+              <th className="px-6 py-4">Chức vụ</th>
               <th className="px-6 py-4">Người quản lý</th>
               <th className="px-6 py-4 text-right">Thao tác</th>
             </tr>
@@ -199,11 +202,11 @@ export const Users: React.FC = () => {
                 <tr key={uid} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center space-x-3">
-                      <img 
-                        src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`} 
+                      <img
+                        src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`}
                         alt={u.name}
                         onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random` }}
-                        className="w-8 h-8 rounded-full bg-slate-200 object-cover" 
+                        className="w-8 h-8 rounded-full bg-slate-200 object-cover"
                       />
                       <div>
                         <p className="font-semibold text-slate-800">{u.name}</p>
@@ -212,16 +215,16 @@ export const Users: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${
-                       u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700 border-purple-200' : 
-                       u.role === 'MANAGER' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'
-                     }`}>
-                       {u.role}
-                     </span>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                        u.role === 'MANAGER' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'
+                      }`}>
+                      {u.role}
+                    </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">
                     {departments.find(dep => (dep.id || dep._id) === u.department)?.name || u.department}
                   </td>
+                  <td className="px-6 py-4 text-sm text-slate-500 font-bold">{u.position || '---'}</td>
                   <td className="px-6 py-4 text-sm text-slate-500">{supervisorName}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end items-center space-x-2">
@@ -229,8 +232,8 @@ export const Users: React.FC = () => {
                         <button onClick={() => openEditModal(u)} className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 rounded text-sm transition-colors">Sửa</button>
                       )}
                       {canDelete && (
-                        <button 
-                          onClick={() => handleDelete(u)} 
+                        <button
+                          onClick={() => handleDelete(u)}
                           disabled={deletingId === getUserId(u)}
                           className="px-3 py-1 bg-red-50 text-red-700 border border-red-100 hover:bg-red-100 rounded text-sm transition-colors disabled:opacity-50"
                         >
@@ -250,27 +253,38 @@ export const Users: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in duration-200">
             <h3 className="text-lg font-bold text-slate-800">{editingUserId ? 'Chỉnh sửa hồ sơ' : 'Tạo tài khoản mới'}</h3>
-            
+
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Họ tên</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.name}
-                onChange={e => setFormData({...formData, name: e.target.value})}
+                onChange={e => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
-            
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chức vụ</label>
+              <input
+                type="text"
+                placeholder="Trưởng phòng, Nhân viên..."
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={formData.position}
+                onChange={e => setFormData({ ...formData, position: e.target.value })}
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
-              <input 
-                type="email" 
+              <input
+                type="email"
                 required
                 disabled={!!editingUserId}
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100"
                 value={formData.email}
-                onChange={e => setFormData({...formData, email: e.target.value})}
+                onChange={e => setFormData({ ...formData, email: e.target.value })}
               />
             </div>
 
@@ -278,52 +292,52 @@ export const Users: React.FC = () => {
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
                 {editingUserId ? 'Mật khẩu mới (Bỏ trống nếu giữ nguyên)' : 'Mật khẩu khởi tạo'}
               </label>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 required={!editingUserId}
                 placeholder="••••••••"
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.password}
-                onChange={e => setFormData({...formData, password: e.target.value})}
+                onChange={e => setFormData({ ...formData, password: e.target.value })}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vai trò</label>
-                <select 
+                <select
                   className="w-full p-2 border border-slate-200 rounded-lg outline-none"
                   value={formData.role}
                   disabled={currentUser?.role !== 'ADMIN'}
-                  onChange={e => setFormData({...formData, role: e.target.value as UserRole})}
+                  onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}
                 >
                   {currentUser?.role === 'ADMIN' && <option value="ADMIN">Admin</option>}
                   {currentUser?.role === 'ADMIN' && <option value="MANAGER">Quản lý</option>}
                   <option value="EMPLOYEE">Nhân viên</option>
                 </select>
               </div>
-              
+
               {/* --- ĐÃ SỬA: Dùng Select Box thay vì Input --- */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Phòng ban</label>
-                <select 
+                <select
                   required
                   className="w-full p-2 border border-slate-200 rounded-lg outline-none disabled:bg-slate-100"
                   disabled={currentUser?.role !== 'ADMIN'}
                   value={formData.department}
-                  onChange={e => setFormData({...formData, department: e.target.value})}
+                  onChange={e => setFormData({ ...formData, department: e.target.value })}
                 >
-                   <option value="">-- Chọn phòng --</option>
-                   {departments.map(dep => {
-                     const depId = dep.id || dep._id;
-                     return (
-                       <option key={depId} value={depId}>{dep.name}</option>
-                     )
-                   })}
-                   {/* Fallback nếu danh sách rỗng hoặc đang load mà user có sẵn department */}
-                   {departments.length === 0 && formData.department && (
-                     <option value={formData.department}>{formData.department}</option>
-                   )}
+                  <option value="">-- Chọn phòng --</option>
+                  {departments.map(dep => {
+                    const depId = dep.id || dep._id;
+                    return (
+                      <option key={depId} value={depId}>{dep.name}</option>
+                    )
+                  })}
+                  {/* Fallback nếu danh sách rỗng hoặc đang load mà user có sẵn department */}
+                  {departments.length === 0 && formData.department && (
+                    <option value={formData.department}>{formData.department}</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -331,15 +345,15 @@ export const Users: React.FC = () => {
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Avatar URL</label>
               <div className="flex gap-2">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   className="flex-1 p-2 border border-slate-200 rounded-lg outline-none text-sm"
                   value={formData.avatar}
-                  onChange={e => setFormData({...formData, avatar: e.target.value})}
+                  onChange={e => setFormData({ ...formData, avatar: e.target.value })}
                 />
-                <button 
-                  type="button" 
-                  onClick={() => setFormData({...formData, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(formData.name || 'user')}`})} 
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(formData.name || 'user')}` })}
                   className="px-3 bg-slate-100 border rounded-lg text-xs font-bold"
                 >
                   Random

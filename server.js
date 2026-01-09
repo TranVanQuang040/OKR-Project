@@ -18,6 +18,15 @@ const __dirname = path.dirname(__filename)
 app.use(express.json())
 app.use(cors())
 
+// Global Request Logger
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
 // Routes
 import authRoutes from './routes/auth.js'
 import usersRoutes from './routes/users.js'

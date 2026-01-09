@@ -32,3 +32,24 @@ export async function updateKeyResult(okrId: string, krId: string, data: any) {
 export async function deleteKeyResult(okrId: string, krId: string) {
   return apiRequest(`/okrs/${okrId}/keyresults/${krId}`, { method: 'DELETE' });
 }
+export async function getMyOKRs(params?: { quarter?: string; year?: number }) {
+  const qs = params ? `?${new URLSearchParams(Object.entries(params).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}` : '';
+  return apiRequest(`/my-okrs${qs}`);
+}
+
+export async function getMyOKRsByUser(userId: string, params?: { quarter?: string; year?: number }) {
+  const qs = params ? `?${new URLSearchParams(Object.entries(params).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}` : '';
+  return apiRequest(`/my-okrs/user/${userId}${qs}`);
+}
+
+export async function createMyOKR(payload: any) {
+  return apiRequest('/my-okrs', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function updateMyOKR(id: string, payload: any) {
+  return apiRequest(`/my-okrs/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+}
+
+export async function deleteMyOKR(id: string) {
+  return apiRequest(`/my-okrs/${id}`, { method: 'DELETE' });
+}

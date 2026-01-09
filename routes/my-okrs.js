@@ -14,6 +14,28 @@ router.get('/', authMiddleware, async (req, res) => {
   res.json(okrs);
 });
 
+// GET My OKRs for a specific user (for Manager/Admin)
+router.get('/user/:userId', authMiddleware, async (req, res) => {
+  const { quarter, year } = req.query;
+  try {
+    // Only Admin or Manager in same department can see
+    if (req.user.role !== 'ADMIN') {
+      const targetUser = await mongoose.model('User').findById(req.params.userId);
+      if (!targetUser || targetUser.department !== req.user.department) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+    }
+
+    const filter = { ownerId: req.params.userId };
+    if (quarter) filter.quarter = quarter;
+    if (year) filter.year = Number(year);
+    const okrs = await MyObjective.find(filter);
+    res.json(okrs);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 function validateAndPrepareOKR(body) {
   if (!body || typeof body !== 'object') throw new Error('Missing body');
   const { title, keyResults, quarter, year, ownerId, ownerName, department, status } = body;

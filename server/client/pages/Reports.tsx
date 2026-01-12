@@ -81,7 +81,7 @@ export const Reports: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center">
             <span className="material-icons mr-2 text-indigo-600">assessment</span>
-            Tiến độ công việc theo phòng ban (%)
+            Tiến độ OKR theo phòng ban (%)
           </h3>
           <div className="h-72 w-full">
             {deptData.length > 0 ? (

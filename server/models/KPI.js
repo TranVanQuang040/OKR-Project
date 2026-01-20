@@ -22,6 +22,7 @@ const KPISchema = new mongoose.Schema({
     department: { type: String, required: true },
     assignedTo: { type: String }, // User ID for personal KPI
     assignedToName: { type: String }, // User name for display
+    assignedToDepartment: { type: String }, // User department for display
     assignedBy: { type: String }, // Manager ID
     assignedByName: { type: String }, // Manager name
 

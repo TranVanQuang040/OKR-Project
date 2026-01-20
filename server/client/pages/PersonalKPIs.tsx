@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../services/kpiService';
-import { getOKRs } from '../services/okrService';
+import { getOKRs, getMyOKRsByUser } from '../services/okrService';
 import { userService } from '../services/userService';
 import { useAuth } from '../context/AuthContext';
 import { KPI, Objective, User } from '../types';
@@ -9,6 +9,7 @@ export const PersonalKPIs: React.FC = () => {
     const { user, selectedPeriod } = useAuth();
     const [kpis, setKpis] = useState<KPI[]>([]);
     const [okrs, setOkrs] = useState<Objective[]>([]);
+    const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
@@ -34,17 +35,34 @@ export const PersonalKPIs: React.FC = () => {
         if (isManager) loadUsers();
     }, [selectedPeriod, user]);
 
+    useEffect(() => {
+        if (form.assignedTo && isManager) {
+            loadPersonalOKRs(form.assignedTo);
+        } else {
+            setPersonalOkrs([]);
+        }
+    }, [form.assignedTo]);
+
+    const loadPersonalOKRs = async (userId: string) => {
+        try {
+            const data = await getMyOKRsByUser(userId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
+            setPersonalOkrs(data || []);
+        } catch (err) {
+            console.error('Failed to load personal OKRs', err);
+        }
+    };
+
     const loadKPIs = async () => {
-        if (!user?.id || (!isManager && !user?.department)) return;
+        if (!user?.id) return;
         
         setIsLoading(true);
         try {
             let data;
             if (isManager) {
-                // Managers see all personal KPIs in their department
+                // Managers see all personal KPIs they assigned (assigned by them)
+                // Load all PERSONAL KPIs without department filter since they can assign to different departments
                 data = await getKPIs({
                     type: 'PERSONAL',
-                    department: user.department,
                     quarter: selectedPeriod.quarter,
                     year: selectedPeriod.year
                 });
@@ -109,8 +127,9 @@ export const PersonalKPIs: React.FC = () => {
             const payload: Partial<KPI> = {
                 ...form,
                 type: 'PERSONAL',
-                department: user?.department || '',
+                department: assignedUser?.department || '',
                 assignedToName: assignedUser?.name,
+                assignedToDepartment: assignedUser?.department || '',
                 quarter: selectedPeriod.quarter,
                 year: selectedPeriod.year,
                 currentValue: editingKPI?.currentValue || 0,
@@ -136,7 +155,9 @@ export const PersonalKPIs: React.FC = () => {
             setTimeout(() => setStatusMessage(''), 3000);
             closeModal();
         } catch (err: any) {
-            alert(err?.message || 'Không thể lưu KPI');
+            console.error('KPI Submission Error:', err);
+            const msg = err?.body?.message || err?.message || 'Không thể lưu KPI';
+            alert(`${msg} (Lỗi: ${err?.status || 'Unknown'})`);
         }
     };
 
@@ -155,22 +176,18 @@ export const PersonalKPIs: React.FC = () => {
         }
     };
 
-    const handleUpdateProgress = async (kpi: KPI) => {
-        const newValue = prompt(`Cập nhật giá trị hiện tại (${kpi.unit}):`, String(kpi.currentValue));
-        if (newValue === null) return;
-
-        const value = Number(newValue);
-        if (isNaN(value) || value < 0) {
-            return alert('Giá trị không hợp lệ');
-        }
+    const handleMarkAsCompleted = async (kpi: KPI) => {
+        if (!confirm(`Xác nhận hoàn thành KPI: ${kpi.title}?`)) return;
 
         try {
-            const updated = await updateKPIProgress(kpi.id, value);
+            const updated = await updateKPIProgress(kpi.id, kpi.targetValue);
             setKpis(prev => prev.map(k => k.id === updated.id ? updated : k));
-            setStatusMessage('Cập nhật tiến độ thành công');
+            setStatusMessage('Đã đánh dấu hoàn thành KPI');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            alert(err?.message || 'Không thể cập nhật tiến độ');
+            console.error('Mark As Completed Error:', err);
+            const msg = err?.body?.message || err?.message || 'Không thể cập nhật';
+            alert(`${msg} (Mã: ${err?.status || '500'})`);
         }
     };
 
@@ -267,7 +284,9 @@ export const PersonalKPIs: React.FC = () => {
                                                 />
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-800">{kpi.assignedToName}</p>
-                                                    <p className="text-xs text-slate-500">{kpi.department}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {kpi.assignedToDepartment || kpi.department}
+                                                    </p>
                                                 </div>
                                             </div>
                                         </td>
@@ -303,10 +322,11 @@ export const PersonalKPIs: React.FC = () => {
                                         <td className="px-6 py-4">
                                             <div className="flex items-center justify-end space-x-2">
                                                 <button
-                                                    onClick={() => handleUpdateProgress(kpi)}
-                                                    className="text-indigo-600 text-sm font-bold hover:underline"
+                                                    onClick={() => handleMarkAsCompleted(kpi)}
+                                                    className="text-emerald-600 text-sm font-bold hover:underline"
+                                                    title="Đánh dấu hoàn thành"
                                                 >
-                                                    Cập nhật
+                                                    Hoàn thành
                                                 </button>
                                                 {isManager && (
                                                     <>
@@ -356,7 +376,6 @@ export const PersonalKPIs: React.FC = () => {
                             <input
                                 type="text"
                                 required
-                                placeholder="Hoàn thành 10 tasks"
                                 className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                                 value={form.title}
                                 onChange={e => setForm({ ...form, title: e.target.value })}
@@ -379,10 +398,12 @@ export const PersonalKPIs: React.FC = () => {
                                 <input
                                     type="number"
                                     required
-                                    min="0"
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={form.targetValue}
-                                    onChange={e => setForm({ ...form, targetValue: Number(e.target.value) })}
+                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    value={form.targetValue || ''}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setForm({ ...form, targetValue: val === '' ? 0 : Number(val) });
+                                    }}
                                 />
                             </div>
                             <div>
@@ -390,7 +411,6 @@ export const PersonalKPIs: React.FC = () => {
                                 <input
                                     type="text"
                                     required
-                                    placeholder="tasks"
                                     className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                                     value={form.unit}
                                     onChange={e => setForm({ ...form, unit: e.target.value })}
@@ -406,9 +426,18 @@ export const PersonalKPIs: React.FC = () => {
                                 onChange={e => setForm({ ...form, linkedOKRId: e.target.value })}
                             >
                                 <option value="">-- Không liên kết --</option>
-                                {okrs.filter(o => o.assignedTo === form.assignedTo || o.department === user?.department).map(okr => (
-                                    <option key={okr.id} value={okr.id}>{okr.title}</option>
-                                ))}
+                                <optgroup label="OKR Phòng ban">
+                                    {okrs.filter(o => o.department === user?.department).map(okr => (
+                                        <option key={okr.id} value={okr.id}>{okr.title}</option>
+                                    ))}
+                                </optgroup>
+                                {personalOkrs.length > 0 && (
+                                    <optgroup label="OKR Cá nhân của nhân viên">
+                                        {personalOkrs.map(okr => (
+                                            <option key={okr.id || okr._id} value={okr.id || okr._id}>{okr.title}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
                             </select>
                         </div>
 

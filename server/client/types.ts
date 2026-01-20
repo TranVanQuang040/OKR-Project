@@ -93,6 +93,7 @@ export interface KPI {
   department: string;
   assignedTo?: string;
   assignedToName?: string;
+  assignedToDepartment?: string;
   assignedBy?: string;
   assignedByName?: string;
   linkedOKRId?: string;

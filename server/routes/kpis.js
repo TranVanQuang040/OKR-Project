@@ -1,6 +1,9 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import KPI from '../models/KPI.js';
 import Objective from '../models/Objective.js';
+import MyObjective from '../models/MyObjective.js';
+import User from '../models/User.js';
 import authMiddleware from '../middleware/auth.js';
 
 const router = express.Router();
@@ -23,7 +26,9 @@ router.get('/', authMiddleware, async (req, res) => {
         }
 
         const kpis = await KPI.find(filter).sort({ createdAt: -1 });
+        console.log(`GET /api/kpis result: ${kpis.length} items`);
         res.json(kpis);
+
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
     }
@@ -62,7 +67,9 @@ router.get('/personal/:userId', authMiddleware, async (req, res) => {
 
 // Create new KPI
 router.post('/', authMiddleware, async (req, res) => {
+    console.log('POST /api/kpis payload:', req.body);
     try {
+
         const { type, assignedTo } = req.body;
 
         // Only managers and admins can create personal KPIs
@@ -74,14 +81,28 @@ router.post('/', authMiddleware, async (req, res) => {
         if (type === 'PERSONAL') {
             req.body.assignedBy = req.user.id;
             req.body.assignedByName = req.user.name;
+
+            // Get assignedToDepartment and department from the user being assigned
+            if (assignedTo) {
+                const assignedUser = await User.findById(assignedTo);
+                if (assignedUser) {
+                    req.body.assignedToDepartment = assignedUser.department;
+                    req.body.department = assignedUser.department;
+                }
+            }
         }
 
-        // Validate linked OKR if provided
-        if (req.body.linkedOKRId) {
-            const okr = await Objective.findById(req.body.linkedOKRId);
+        if (req.body.linkedOKRId && mongoose.Types.ObjectId.isValid(req.body.linkedOKRId)) {
+            let okr = await Objective.findById(req.body.linkedOKRId);
             if (okr) {
                 req.body.linkedOKRTitle = okr.title;
+            } else {
+                okr = await MyObjective.findById(req.body.linkedOKRId);
+                if (okr) req.body.linkedOKRTitle = okr.title;
             }
+        } else {
+            req.body.linkedOKRId = null;
+            req.body.linkedOKRTitle = '';
         }
 
         const kpi = await KPI.create(req.body);
@@ -94,8 +115,11 @@ router.post('/', authMiddleware, async (req, res) => {
 // Get single KPI
 router.get('/:id', authMiddleware, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: 'ID không hợp lệ' });
+        }
         const kpi = await KPI.findById(req.params.id);
-        if (!kpi) return res.status(404).json({ message: 'KPI not found' });
+        if (!kpi) return res.status(404).json({ message: 'KPI không tìm thấy' });
         res.json(kpi);
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
@@ -105,8 +129,11 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // Update KPI
 router.put('/:id', authMiddleware, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: 'ID không hợp lệ' });
+        }
         const kpi = await KPI.findById(req.params.id);
-        if (!kpi) return res.status(404).json({ message: 'KPI not found' });
+        if (!kpi) return res.status(404).json({ message: 'KPI không tìm thấy' });
 
         // Check permissions for personal KPI
         if (kpi.type === 'PERSONAL' && req.user.role === 'EMPLOYEE') {
@@ -115,7 +142,34 @@ router.put('/:id', authMiddleware, async (req, res) => {
             }
         }
 
-        Object.assign(kpi, req.body);
+        // Validate linked OKR if provided
+        if (req.body.linkedOKRId && mongoose.Types.ObjectId.isValid(req.body.linkedOKRId)) {
+            let okr = await Objective.findById(req.body.linkedOKRId);
+            if (okr) {
+                req.body.linkedOKRTitle = okr.title;
+            } else {
+                okr = await MyObjective.findById(req.body.linkedOKRId);
+                if (okr) req.body.linkedOKRTitle = okr.title;
+            }
+        } else if (req.body.linkedOKRId === '' || req.body.linkedOKRId === null || req.body.linkedOKRId === undefined) {
+            req.body.linkedOKRId = null;
+            req.body.linkedOKRTitle = '';
+        }
+
+        // Update assignedToDepartment if assignedTo is being changed
+        if (req.body.assignedTo && req.body.assignedTo !== kpi.assignedTo) {
+            const assignedUser = await User.findById(req.body.assignedTo);
+            if (assignedUser) {
+                req.body.assignedToDepartment = assignedUser.department;
+                req.body.department = assignedUser.department;
+            }
+        }
+
+        // Clean payload before assign to avoid overwriting sanitized null with empty string
+        const payload = { ...req.body };
+        if (payload.linkedOKRId === '') payload.linkedOKRId = null;
+
+        Object.assign(kpi, payload);
         await kpi.save();
 
         res.json(kpi);
@@ -132,8 +186,11 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
             return res.status(400).json({ message: 'currentValue is required' });
         }
 
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: 'ID không hợp lệ' });
+        }
         const kpi = await KPI.findById(req.params.id);
-        if (!kpi) return res.status(404).json({ message: 'KPI not found' });
+        if (!kpi) return res.status(404).json({ message: 'KPI không tìm thấy' });
 
         kpi.currentValue = Number(currentValue);
         await kpi.save();
@@ -141,25 +198,29 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
         // Auto-update linked OKR if exists
         if (kpi.linkedOKRId) {
             try {
-                const okr = await Objective.findById(kpi.linkedOKRId);
+                // Try Objective first
+                let okr = await Objective.findById(kpi.linkedOKRId);
+                const isPersonal = !okr;
+                if (isPersonal) {
+                    okr = await MyObjective.findById(kpi.linkedOKRId);
+                }
+
                 if (okr) {
-                    // Find all KPIs linked to this OKR
+                    // Find all KPIs linked to this OKR (could be across multiple people if it's a Dept OKR)
                     const linkedKPIs = await KPI.find({ linkedOKRId: kpi.linkedOKRId });
 
-                    // Calculate average progress of all linked KPIs
-                    const totalProgress = linkedKPIs.reduce((sum, k) => sum + k.progress, 0);
+                    // Calculate average progress
+                    const totalProgress = linkedKPIs.reduce((sum, k) => sum + (k.progress || 0), 0);
                     const avgProgress = linkedKPIs.length > 0
                         ? Math.round(totalProgress / linkedKPIs.length)
                         : 0;
 
                     okr.progress = avgProgress;
 
-                    // Also update key results if they exist
-                    if (okr.keyResults && okr.keyResults.length > 0) {
+                    // If it's a personal OKR, we might need to handle its specific KR progress too
+                    if (!isPersonal && okr.keyResults && okr.keyResults.length > 0) {
                         const krProgress = okr.keyResults.reduce((sum, kr) => sum + (kr.progress || 0), 0);
                         const krAvg = Math.round(krProgress / okr.keyResults.length);
-
-                        // Use the higher of KPI progress or KR progress
                         okr.progress = Math.max(avgProgress, krAvg);
                     }
 
@@ -167,7 +228,6 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
                 }
             } catch (okrErr) {
                 console.error('Error updating linked OKR:', okrErr);
-                // Don't fail the KPI update if OKR update fails
             }
         }
 
@@ -180,8 +240,11 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
 // Delete KPI
 router.delete('/:id', authMiddleware, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: 'ID không hợp lệ' });
+        }
         const kpi = await KPI.findById(req.params.id);
-        if (!kpi) return res.status(404).json({ message: 'KPI not found' });
+        if (!kpi) return res.status(404).json({ message: 'KPI không tìm thấy' });
 
         // Only creator or admin can delete
         if (req.user.role === 'EMPLOYEE' && kpi.assignedBy !== req.user.id) {
@@ -193,6 +256,12 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
     }
+});
+
+// Catch-all for KPI router to debug 404
+router.use((req, res) => {
+    console.log(`--- KPI Router 404 Fallback: ${req.method} ${req.originalUrl} ---`);
+    res.status(404).json({ message: `KPI Route not found: ${req.method} ${req.originalUrl}` });
 });
 
 export default router;

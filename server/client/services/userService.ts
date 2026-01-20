@@ -17,14 +17,17 @@ export const userService = {
       const userArray = Array.isArray(users) ? users : [];
       return userArray.map(normalizeId);
     } catch (err) {
-      console.error('API error, falling back to local', err);
-      const data = localStorage.getItem('okr_pro_data_users');
-      if (!data) {
-        localStorage.setItem('okr_pro_data_users', JSON.stringify([]));
-        return [];
+      console.error('API error for users, falling back to local', err);
+      try {
+        const data = localStorage.getItem('okr_pro_data_users');
+        if (data) {
+          const parsed = JSON.parse(data);
+          return Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (e) {
+        // localStorage parse error, ignore
       }
-      const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
+      return [];
     }
   },
 

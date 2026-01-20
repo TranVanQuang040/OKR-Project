@@ -5,13 +5,19 @@ async function getTasks(params?: {
     krId?: string;
     status?: string;
 }) {
-    const filteredParams = params ? Object.fromEntries(
-        Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
-    ) : {};
-    const qs = Object.keys(filteredParams).length > 0
-        ? `?${new URLSearchParams(Object.entries(filteredParams).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}`
-        : '';
-    return apiRequest(`/tasks${qs}`);
+    try {
+        const filteredParams = params ? Object.fromEntries(
+            Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+        ) : {};
+        const qs = Object.keys(filteredParams).length > 0
+            ? `?${new URLSearchParams(Object.entries(filteredParams).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}`
+            : '';
+        const tasks = await apiRequest(`/tasks${qs}`);
+        return Array.isArray(tasks) ? tasks : [];
+    } catch (err) {
+        console.error('API error for tasks', err);
+        return [];
+    }
 }
 
 async function createTask(payload: any) {

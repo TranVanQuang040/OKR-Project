@@ -229,7 +229,7 @@ export const Tasks: React.FC = () => {
                   )))}
                   {myOkrs.length > 0 && (
                     <>
-                      <optgroup label="---Cá nhân (My OKRs)---">
+                      <optgroup label="---OKRs cá nhân---">
                         {myOkrs.map(o => o.keyResults && o.keyResults.map(kr => (
                           <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
                         )))}

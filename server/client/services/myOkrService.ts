@@ -1,8 +1,14 @@
 import { apiRequest } from './apiClient';
 
 export async function getMyOKRs(params?: { quarter?: string; year?: number }) {
-  const qs = params ? `?${new URLSearchParams(Object.entries(params).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}` : '';
-  return apiRequest(`/my-okrs${qs}`);
+  try {
+    const qs = params ? `?${new URLSearchParams(Object.entries(params).reduce((acc, [k, v]) => ({ ...acc, [k]: String(v) }), {}))}` : '';
+    const okrs = await apiRequest(`/my-okrs${qs}`);
+    return Array.isArray(okrs) ? okrs : [];
+  } catch (err) {
+    console.error('API error for my-okrs', err);
+    return [];
+  }
 }
 
 export async function createMyOKR(payload: any) {

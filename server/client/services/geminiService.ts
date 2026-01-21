@@ -9,7 +9,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
  */
 function extractJSON(text: string) {
   if (!text) return [];
-  
+
   // Clean common markdown and code block markers
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^```json/i, '');
@@ -21,7 +21,7 @@ function extractJSON(text: string) {
   // followed by text, which triggers "Unexpected non-whitespace character after JSON".
   const firstBrace = cleaned.indexOf('{');
   const firstBracket = cleaned.indexOf('[');
-  
+
   let start = -1;
   let end = -1;
 
@@ -50,12 +50,12 @@ function extractJSON(text: string) {
     // Final fallback: regex match for arrays or objects
     const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
     if (arrayMatch) {
-      try { return JSON.parse(arrayMatch[0]); } catch (err) {}
+      try { return JSON.parse(arrayMatch[0]); } catch (err) { }
     }
-    
+
     const objectMatch = cleaned.match(/\{[\s\S]*\}/);
     if (objectMatch) {
-      try { return JSON.parse(objectMatch[0]); } catch (err) {}
+      try { return JSON.parse(objectMatch[0]); } catch (err) { }
     }
     console.error("All JSON extraction methods failed for input:", cleaned);
     return [];
@@ -71,7 +71,7 @@ export const getOKRSuggestions = async (objective: string) => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Suggest 3-5 measurable Key Results for the following objective: "${objective}". For each Key Result, provide a title, a starting value (0), a target value, and a unit. Respond strictly in valid JSON format only.`,
+      contents: `Suggest 3-5 measurable Key Results for the following objective: "${objective}". For each Key Result, provide just a title. Respond strictly in valid JSON format only.`,
       config: {
         responseMimeType: "application/json",
         thinkingConfig: { thinkingBudget: 0 },
@@ -80,11 +80,9 @@ export const getOKRSuggestions = async (objective: string) => {
           items: {
             type: Type.OBJECT,
             properties: {
-              title: { type: Type.STRING },
-              targetValue: { type: Type.NUMBER },
-              unit: { type: Type.STRING }
+              title: { type: Type.STRING }
             },
-            required: ["title", "targetValue", "unit"]
+            required: ["title"]
           }
         }
       }

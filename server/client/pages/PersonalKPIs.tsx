@@ -3,11 +3,14 @@ import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../
 import { getOKRs, getMyOKRsByUser } from '../services/okrService';
 import { userService } from '../services/userService';
 import { useAuth } from '../context/AuthContext';
-import { KPI, Objective, User } from '../types';
+import { KPI, Objective, User, Task } from '../types';
+
+import { dataService } from '../services/dataService';
 
 export const PersonalKPIs: React.FC = () => {
     const { user, selectedPeriod } = useAuth();
     const [kpis, setKpis] = useState<KPI[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [okrs, setOkrs] = useState<Objective[]>([]);
     const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>([]);
@@ -20,10 +23,10 @@ export const PersonalKPIs: React.FC = () => {
     const [form, setForm] = useState({
         title: '',
         description: '',
-        targetValue: 0,
-        unit: '',
         assignedTo: '',
         linkedOKRId: '',
+        linkedKRId: '',
+        linkedTaskId: '',
         endDate: ''
     });
 
@@ -32,6 +35,7 @@ export const PersonalKPIs: React.FC = () => {
     useEffect(() => {
         loadKPIs();
         loadOKRs();
+        loadTasks();
         if (isManager) loadUsers();
     }, [selectedPeriod, user]);
 
@@ -54,7 +58,7 @@ export const PersonalKPIs: React.FC = () => {
 
     const loadKPIs = async () => {
         if (!user?.id) return;
-        
+
         setIsLoading(true);
         try {
             let data;
@@ -92,6 +96,15 @@ export const PersonalKPIs: React.FC = () => {
         }
     };
 
+    const loadTasks = async () => {
+        try {
+            const data = await dataService.getTasks();
+            setTasks(data || []);
+        } catch (err) {
+            console.error('Failed to load tasks', err);
+        }
+    };
+
     const loadUsers = async () => {
         try {
             const data = await userService.getUsers();
@@ -110,7 +123,7 @@ export const PersonalKPIs: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.title || form.targetValue <= 0 || !form.unit) {
+        if (!form.title) {
             return alert('Vui lòng điền đủ thông tin');
         }
 
@@ -124,7 +137,7 @@ export const PersonalKPIs: React.FC = () => {
 
         try {
             const assignedUser = users.find(u => u.id === form.assignedTo);
-            const payload: Partial<KPI> = {
+            const payload: any = {
                 ...form,
                 type: 'PERSONAL',
                 department: assignedUser?.department || '',
@@ -137,9 +150,21 @@ export const PersonalKPIs: React.FC = () => {
                 status: 'ACTIVE'
             };
 
-            if (form.linkedOKRId) {
-                const okr = okrs.find(o => o.id === form.linkedOKRId);
-                if (okr) payload.linkedOKRTitle = okr.title;
+            // Sanitize IDs for backend
+            if (!payload.linkedOKRId) payload.linkedOKRId = null;
+            if (!payload.linkedKRId) payload.linkedKRId = null;
+            if (!payload.linkedTaskId) payload.linkedTaskId = null;
+
+            if (payload.linkedOKRId) {
+                const combinedOkrs = [...personalOkrs, ...okrs];
+                const okr = combinedOkrs.find(o => (o.id || o._id) === payload.linkedOKRId);
+                if (okr) {
+                    payload.linkedOKRTitle = okr.title;
+                    if (payload.linkedKRId) {
+                        const kr = okr.keyResults?.find((k: any) => (k.id || k._id) === payload.linkedKRId);
+                        if (kr) payload.linkedKRTitle = kr.title;
+                    }
+                }
             }
 
             if (editingKPI) {
@@ -176,19 +201,21 @@ export const PersonalKPIs: React.FC = () => {
         }
     };
 
-    const handleMarkAsCompleted = async (kpi: KPI) => {
-        if (!confirm(`Xác nhận hoàn thành KPI: ${kpi.title}?`)) return;
-
+    const handleUpdateProgress = async (id: string, progress: number) => {
         try {
-            const updated = await updateKPIProgress(kpi.id, kpi.targetValue);
+            const updated = await updateKPIProgress(id, progress);
             setKpis(prev => prev.map(k => k.id === updated.id ? updated : k));
-            setStatusMessage('Đã đánh dấu hoàn thành KPI');
+            setStatusMessage('Cập nhật tiến độ thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            console.error('Mark As Completed Error:', err);
-            const msg = err?.body?.message || err?.message || 'Không thể cập nhật';
-            alert(`${msg} (Mã: ${err?.status || '500'})`);
+            console.error('Update Progress Error:', err);
+            alert(err?.message || 'Không thể cập nhật tiến độ');
         }
+    };
+
+    const handleMarkAsCompleted = async (kpi: KPI) => {
+        if (!confirm(`Xác nhận hoàn thành KPI: ${kpi.title}?`)) return;
+        handleUpdateProgress(kpi.id, 100);
     };
 
     const openEditModal = (kpi: KPI) => {
@@ -196,19 +223,65 @@ export const PersonalKPIs: React.FC = () => {
         setForm({
             title: kpi.title,
             description: kpi.description || '',
-            targetValue: kpi.targetValue,
-            unit: kpi.unit,
             assignedTo: kpi.assignedTo || '',
             linkedOKRId: kpi.linkedOKRId || '',
+            linkedKRId: kpi.linkedKRId || '',
+            linkedTaskId: kpi.linkedTaskId || '',
             endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : ''
         });
         setShowModal(true);
     };
 
+    const handleTaskChange = async (taskId: string) => {
+        if (!taskId) {
+            setForm({ ...form, linkedTaskId: '' });
+            return;
+        }
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+            let currentPersonalOkrs = personalOkrs;
+            // If task belongs to a different user, load their OKRs first
+            if (task.assigneeId && task.assigneeId !== form.assignedTo) {
+                try {
+                    const data = await getMyOKRsByUser(task.assigneeId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
+                    currentPersonalOkrs = data || [];
+                    setPersonalOkrs(currentPersonalOkrs);
+                } catch (err) {
+                    console.error('Failed to load OKRs for task assignee', err);
+                }
+            }
+
+            let parentId = '';
+            if (task.krId) {
+                const combined = currentPersonalOkrs; // Only search in personal OKRs
+                for (const o of combined) {
+                    if (o.keyResults?.some((kr: any) => (kr.id || kr._id) === task.krId)) {
+                        parentId = (o.id || o._id) as string;
+                        break;
+                    }
+                }
+            }
+
+            setForm({
+                ...form,
+                linkedTaskId: taskId,
+                title: task.title,
+                description: task.description || '',
+                assignedTo: task.assigneeId || form.assignedTo,
+                linkedKRId: task.krId || '',
+                linkedOKRId: parentId
+            });
+        }
+    };
+
+    const handleKRChange = (krId: string) => {
+        // Function no longer needed as UI removed, but keeping logic if called from elsewhere
+    };
+
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', targetValue: 0, unit: '', assignedTo: '', linkedOKRId: '', endDate: '' });
+        setForm({ title: '', description: '', assignedTo: '', linkedOKRId: '', linkedKRId: '', linkedTaskId: '', endDate: '' });
     };
 
     const getStatusColor = (status: string) => {
@@ -266,7 +339,6 @@ export const PersonalKPIs: React.FC = () => {
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Nhân viên</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">KPI</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Mục tiêu</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Tiến độ</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Trạng thái</th>
                                     <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Thao tác</th>
@@ -294,16 +366,19 @@ export const PersonalKPIs: React.FC = () => {
                                             <div>
                                                 <p className="text-sm font-bold text-slate-800">{kpi.title}</p>
                                                 {kpi.linkedOKRTitle && (
-                                                    <p className="text-xs text-indigo-600 mt-1">🎯 {kpi.linkedOKRTitle}</p>
+                                                    <p className="text-xs text-indigo-600 mt-1">
+                                                        🎯 {kpi.linkedOKRTitle} {kpi.linkedKRTitle ? `> ${kpi.linkedKRTitle}` : ''}
+                                                    </p>
+                                                )}
+                                                {kpi.linkedTaskId && (
+                                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center">
+                                                        <span className="material-icons text-[12px] mr-1">task</span>
+                                                        Công việc liên kết
+                                                    </p>
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{kpi.currentValue} / {kpi.targetValue}</p>
-                                                <p className="text-xs text-slate-500">{kpi.unit}</p>
-                                            </div>
-                                        </td>
+
                                         <td className="px-6 py-4">
                                             <div className="space-y-1">
                                                 <div className="flex items-center justify-between">
@@ -321,6 +396,18 @@ export const PersonalKPIs: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center justify-end space-x-2">
+                                                <button
+                                                    onClick={() => {
+                                                        const newVal = prompt('Nhập tiến độ mới (%)', kpi.progress.toString());
+                                                        if (newVal !== null) {
+                                                            const progress = parseInt(newVal);
+                                                            if (!isNaN(progress)) handleUpdateProgress(kpi.id, progress);
+                                                        }
+                                                    }}
+                                                    className="text-indigo-600 text-sm font-bold hover:underline"
+                                                >
+                                                    Cập nhật
+                                                </button>
                                                 <button
                                                     onClick={() => handleMarkAsCompleted(kpi)}
                                                     className="text-emerald-600 text-sm font-bold hover:underline"
@@ -366,7 +453,23 @@ export const PersonalKPIs: React.FC = () => {
                             >
                                 <option value="">-- Chọn nhân viên --</option>
                                 {users.map(u => (
-                                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                                    <option key={u.id} value={u.id}>{u.name} - {u.department} ({u.email})</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                            <label className="block text-[10px] font-bold text-indigo-500 uppercase mb-1 tracking-wider">Chọn từ công việc đã giao</label>
+                            <select
+                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                                value={form.linkedTaskId}
+                                onChange={e => handleTaskChange(e.target.value)}
+                            >
+                                <option value="">-- Lấy thông tin từ công việc --</option>
+                                {tasks.filter(t => form.assignedTo ? t.assigneeId === form.assignedTo : true).map(task => (
+                                    <option key={task.id} value={task.id}>
+                                        {task.title} ({task.assigneeName})
+                                    </option>
                                 ))}
                             </select>
                         </div>
@@ -392,54 +495,27 @@ export const PersonalKPIs: React.FC = () => {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Giá trị mục tiêu</label>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Trọng số (Thang điểm 1-10)</label>
+                            <div className="flex items-center space-x-4">
                                 <input
-                                    type="number"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                    value={form.targetValue || ''}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        setForm({ ...form, targetValue: val === '' ? 0 : Number(val) });
-                                    }}
+                                    type="range"
+                                    min="1"
+                                    max="10"
+                                    step="1"
+                                    className="flex-1 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                    value={(form as any).weight || 1}
+                                    onChange={e => setForm({ ...form, weight: parseInt(e.target.value) || 1 } as any)}
                                 />
+                                <span className="text-sm font-bold text-indigo-600 w-8">{(form as any).weight || 1}</span>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Đơn vị</label>
-                                <input
-                                    type="text"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={form.unit}
-                                    onChange={e => setForm({ ...form, unit: e.target.value })}
-                                />
-                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">* 1: Thấp nhất, 10: Quan trọng nhất. KPI trọng số cao ảnh hưởng nhiều đến điểm hiệu suất.</p>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết OKR (tùy chọn)</label>
-                            <select
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.linkedOKRId}
-                                onChange={e => setForm({ ...form, linkedOKRId: e.target.value })}
-                            >
-                                <option value="">-- Không liên kết --</option>
-                                <optgroup label="OKR Phòng ban">
-                                    {okrs.filter(o => o.department === user?.department).map(okr => (
-                                        <option key={okr.id} value={okr.id}>{okr.title}</option>
-                                    ))}
-                                </optgroup>
-                                {personalOkrs.length > 0 && (
-                                    <optgroup label="OKR Cá nhân của nhân viên">
-                                        {personalOkrs.map(okr => (
-                                            <option key={okr.id || okr._id} value={okr.id || okr._id}>{okr.title}</option>
-                                        ))}
-                                    </optgroup>
-                                )}
-                            </select>
-                        </div>
+
+
+
+
 
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hạn hoàn thành</label>

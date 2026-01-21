@@ -10,15 +10,16 @@ export const Tasks: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [okrs, setOkrs] = useState<Objective[]>([]);
   const [myOkrs, setMyOkrs] = useState<Objective[]>([]);
+  const [kpis, setKpis] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ title: '', description: '', assigneeId: '', krId: '', dueDate: '', priority: 'MEDIUM' });
+  const [formData, setFormData] = useState({ title: '', description: '', assigneeId: '', krId: '', kpiId: '', dueDate: '', priority: 'MEDIUM' });
 
   const getKrTitle = (krId: string) => {
     if (!krId) return 'N/A';
-    
+
     // Tìm trong OKRs
     for (const o of okrs) {
       if (o.keyResults) {
@@ -29,7 +30,7 @@ export const Tasks: React.FC = () => {
         }
       }
     }
-    
+
     // Tìm trong myOKRs
     for (const o of myOkrs) {
       if (o.keyResults) {
@@ -40,7 +41,7 @@ export const Tasks: React.FC = () => {
         }
       }
     }
-    
+
     return 'N/A';
   };
 
@@ -48,13 +49,20 @@ export const Tasks: React.FC = () => {
     setIsLoading(true);
     const t = await dataService.getTasks();
     const o = await dataService.getOKRs();
-    
+
+    // Fetch KPIs
+    let k: any[] = [];
+    try {
+      const kpiData = await dataService.getKPIs();
+      k = kpiData || [];
+    } catch (err) { }
+
     // Lấy myOKRs với period
     let m: Objective[] = [];
     try {
-      const myOKRsData = await myOkrService.getMyOKRs({ 
-        quarter: selectedPeriod.quarter, 
-        year: selectedPeriod.year 
+      const myOKRsData = await myOkrService.getMyOKRs({
+        quarter: selectedPeriod.quarter,
+        year: selectedPeriod.year
       });
       m = (myOKRsData || []).map((okr: any) => ({
         ...okr,
@@ -64,10 +72,11 @@ export const Tasks: React.FC = () => {
     } catch (err) {
       // Fallback - không hiển thị lỗi nếu không lấy được myOKRs
     }
-    
+
     setTasks(t);
     setOkrs(o);
     setMyOkrs(m);
+    setKpis(k);
     setIsLoading(false);
   };
 
@@ -88,7 +97,7 @@ export const Tasks: React.FC = () => {
     await loadData();
     setShowModal(false);
     setEditingTask(null);
-    setFormData({ title: '', description: '', assigneeId: '', krId: '', dueDate: '', priority: 'MEDIUM' });
+    setFormData({ title: '', description: '', assigneeId: '', krId: '', kpiId: '', dueDate: '', priority: 'MEDIUM' });
   };
 
   const handleEdit = (task: Task) => {
@@ -98,6 +107,7 @@ export const Tasks: React.FC = () => {
       description: task.description,
       assigneeId: task.assigneeId,
       krId: task.krId,
+      kpiId: task.kpiId || '',
       dueDate: task.dueDate || '',
       priority: task.priority
     });
@@ -136,7 +146,7 @@ export const Tasks: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Hạng mục công việc</h2>
-        <button onClick={() => { setEditingTask(null); setFormData({ title: '', description: '', assigneeId: '', krId: '', dueDate: '', priority: 'MEDIUM' }); setShowModal(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center space-x-2">
+        <button onClick={() => { setEditingTask(null); setFormData({ title: '', description: '', assigneeId: '', krId: '', kpiId: '', dueDate: '', priority: 'MEDIUM' }); setShowModal(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center space-x-2">
           <span className="material-icons">add_task</span>
           <span>Giao việc mới</span>
         </button>
@@ -152,17 +162,26 @@ export const Tasks: React.FC = () => {
           <div key={task.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col group hover:shadow-md transition-all">
             <div className="flex justify-between items-start mb-2">
               <h4 className="font-bold text-slate-800 line-clamp-1">{task.title}</h4>
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                task.priority === 'HIGH' ? 'bg-red-50 text-red-600' :
-                task.priority === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-600'
-              }`}>
+              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${task.priority === 'HIGH' ? 'bg-red-50 text-red-600' :
+                  task.priority === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-600'
+                }`}>
                 {task.priority}
               </span>
             </div>
             <p className="text-xs text-slate-500 line-clamp-2 mb-4 flex-1">{task.description}</p>
-            <div className="bg-slate-50 p-2 rounded-lg mb-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Key Result</p>
-              <p className="text-[11px] font-medium text-slate-700 truncate">{getKrTitle(task.krId)}</p>
+            <div className="bg-slate-50 p-2 rounded-lg mb-4 flex flex-col space-y-1">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Key Result</p>
+                <p className="text-[11px] font-medium text-slate-700 truncate">{getKrTitle(task.krId)}</p>
+              </div>
+              {task.kpiId && (
+                <div>
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase mb-0.5">Liên kết KPI</p>
+                  <p className="text-[11px] font-medium text-indigo-700 truncate">
+                    {kpis.find(k => k.id === task.kpiId || k._id === task.kpiId)?.title || 'KPI không tồn tại'}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="pt-4 border-t flex justify-between items-center">
               <div className="flex items-center space-x-2">
@@ -172,13 +191,12 @@ export const Tasks: React.FC = () => {
               <div className="flex items-center space-x-3">
                 <button onClick={() => handleEdit(task)} className="text-indigo-600 text-sm font-bold hover:underline">Sửa</button>
                 <button onClick={() => handleDelete(task.id)} disabled={deletingId === task.id} className="text-rose-600 text-sm font-bold hover:underline">{deletingId === task.id ? 'Đang xóa…' : 'Xóa'}</button>
-                <select 
-                  value={task.status} 
-                  onChange={e => updateStatus(task.id, e.target.value as any)} 
-                  className={`text-[10px] font-bold border rounded-lg px-2 py-1 outline-none ${
-                    task.status === 'DONE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                    task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
-                  }`}
+                <select
+                  value={task.status}
+                  onChange={e => updateStatus(task.id, e.target.value as any)}
+                  className={`text-[10px] font-bold border rounded-lg px-2 py-1 outline-none ${task.status === 'DONE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                      task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
+                    }`}
                 >
                   <option value="TODO">TO DO</option>
                   <option value="IN_PROGRESS">IN PROGRESS</option>
@@ -197,23 +215,23 @@ export const Tasks: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tiêu đề công việc</label>
-                <input required placeholder="Nhập tiêu đề..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+                <input required placeholder="Nhập tiêu đề..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả chi tiết</label>
-                <textarea placeholder="Mô tả công việc cần làm..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                <textarea placeholder="Mô tả công việc cần làm..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Người thực hiện</label>
-                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.assigneeId} onChange={e => setFormData({...formData, assigneeId: e.target.value})}>
+                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.assigneeId} onChange={e => setFormData({ ...formData, assigneeId: e.target.value })}>
                     <option value="">-- Chọn --</option>
                     {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Độ ưu tiên</label>
-                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value})}>
+                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value })}>
                     <option value="LOW">Thấp</option>
                     <option value="MEDIUM">Trung bình</option>
                     <option value="HIGH">Cao</option>
@@ -221,8 +239,8 @@ export const Tasks: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết Key Result</label>
-                <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.krId} onChange={e => setFormData({...formData, krId: e.target.value})}>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết Key Result (Bắt buộc)</label>
+                <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.krId} onChange={e => setFormData({ ...formData, krId: e.target.value })}>
                   <option value="">-- Mục tiêu OKR --</option>
                   {okrs.map(o => o.keyResults && o.keyResults.map(kr => (
                     <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
@@ -236,6 +254,24 @@ export const Tasks: React.FC = () => {
                       </optgroup>
                     </>
                   )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-indigo-500 uppercase mb-1">Đóng góp cho KPI nào? (Tùy chọn)</label>
+                <select className="w-full border border-indigo-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-indigo-50/30" value={formData.kpiId} onChange={e => setFormData({ ...formData, kpiId: e.target.value })}>
+                  <option value="">-- Không liên kết KPI --</option>
+                  {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).length > 0 && (
+                    <optgroup label="KPI Cá nhân">
+                      {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).map(k => (
+                        <option key={k.id || k._id} value={k.id || k._id}>{k.title}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="KPI Phòng ban">
+                    {kpis.filter(k => k.type === 'DEPARTMENT').map(k => (
+                      <option key={k.id || k._id} value={k.id || k._id}>{k.title}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
             </div>

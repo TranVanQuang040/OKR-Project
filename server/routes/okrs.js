@@ -17,7 +17,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
 function validateAndPrepareOKR(body) {
   if (!body || typeof body !== 'object') throw new Error('Missing body');
-  const { title, keyResults, quarter, year, ownerId, ownerName, department, status } = body;
+  const { title, keyResults, quarter, year, ownerId, ownerName, department, status, description, type, parentId, priority, tags } = body;
   if (!title || String(title).trim() === '') throw new Error('Missing title');
   if (!quarter) throw new Error('Missing quarter');
   if (!year || isNaN(Number(year))) throw new Error('Missing or invalid year');
@@ -26,22 +26,29 @@ function validateAndPrepareOKR(body) {
 
   const cleanedKRs = keyResults.map((kr, idx) => {
     const title = kr.title || kr.name || '';
-    const unit = kr.unit || '';
-    const targetValue = kr.targetValue != null ? Number(kr.targetValue) : (kr.target != null ? Number(kr.target) : null);
+    const unit = kr.unit || '%';
+    const targetValue = kr.targetValue != null ? Number(kr.targetValue) : (kr.target != null ? Number(kr.target) : 100);
     if (!title || String(title).trim() === '') throw new Error(`KR at index ${idx} is missing title`);
-    if (!unit || String(unit).trim() === '') throw new Error(`KR at index ${idx} is missing unit`);
-    if (targetValue == null || isNaN(targetValue) || targetValue <= 0) throw new Error(`KR at index ${idx} has invalid targetValue`);
     return {
       title: String(title).trim(),
       unit: String(unit).trim(),
       targetValue: targetValue,
       currentValue: Number(kr.currentValue || 0),
-      progress: Number(kr.progress || 0)
+      progress: Number(kr.progress || 0),
+      source: kr.source || 'MANUAL',
+      linkedId: kr.linkedId || null,
+      confidenceScore: kr.confidenceScore != null ? Number(kr.confidenceScore) : 10,
+      weight: Number(kr.weight || 1)
     };
   });
 
   return {
     title: String(title).trim(),
+    description,
+    type: type || 'DEPARTMENT',
+    parentId: parentId || null,
+    priority: priority || 'MEDIUM',
+    tags: Array.isArray(tags) ? tags : [],
     quarter, year: Number(year), ownerId, ownerName, department, status: status || 'DRAFT',
     keyResults: cleanedKRs
   };
@@ -72,6 +79,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
     // apply fields
     okr.title = payload.title;
+    okr.description = payload.description;
+    okr.type = payload.type;
+    okr.parentId = payload.parentId;
+    okr.priority = payload.priority;
+    okr.tags = payload.tags;
     okr.quarter = payload.quarter;
     okr.year = payload.year;
     okr.ownerId = payload.ownerId || okr.ownerId;

@@ -20,10 +20,9 @@ export const DepartmentKPIs: React.FC = () => {
     const [form, setForm] = useState({
         title: '',
         description: '',
-        targetValue: 0,
-        unit: '',
         department: user?.department || '',
         linkedOKRId: '',
+        linkedKRId: '',
         endDate: ''
     });
 
@@ -86,7 +85,7 @@ export const DepartmentKPIs: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.title || form.targetValue <= 0 || !form.unit) {
+        if (!form.title) {
             return alert('Vui lòng điền đủ thông tin');
         }
 
@@ -103,8 +102,15 @@ export const DepartmentKPIs: React.FC = () => {
             };
 
             if (form.linkedOKRId) {
-                const okr = okrs.find(o => o.id === form.linkedOKRId);
-                if (okr) payload.linkedOKRTitle = okr.title;
+                const combinedOkrs = [...okrs, ...personalOkrs];
+                const okr = combinedOkrs.find(o => (o.id || o._id) === form.linkedOKRId);
+                if (okr) {
+                    payload.linkedOKRTitle = okr.title;
+                    if (form.linkedKRId) {
+                        const kr = okr.keyResults?.find((k: any) => (k.id || k._id) === form.linkedKRId);
+                        if (kr) payload.linkedKRTitle = kr.title;
+                    }
+                }
             }
 
             if (editingKPI) {
@@ -141,19 +147,37 @@ export const DepartmentKPIs: React.FC = () => {
         }
     };
 
-    const handleMarkAsCompleted = async (kpi: KPI) => {
-        if (!confirm(`Xác nhận hoàn thành KPI phòng ban: ${kpi.title}?`)) return;
-
+    const handleUpdateProgress = async (id: string, progress: number) => {
         try {
-            const updated = await updateKPIProgress(kpi.id, kpi.targetValue);
+            const updated = await updateKPIProgress(id, progress);
             setKpis(prev => prev.map(k => k.id === updated.id ? updated : k));
-            setStatusMessage('Đã đánh dấu hoàn thành KPI phòng ban');
+            setStatusMessage('Cập nhật tiến độ thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            console.error('Mark As Completed Error:', err);
-            const msg = err?.body?.message || err?.message || 'Không thể cập nhật';
-            alert(`${msg} (Mã: ${err?.status || '500'})`);
+            console.error('Update Progress Error:', err);
+            alert(err?.message || 'Không thể cập nhật tiến độ');
         }
+    };
+
+    const handleMarkAsCompleted = async (kpi: KPI) => {
+        if (!confirm(`Xác nhận hoàn thành KPI phòng ban: ${kpi.title}?`)) return;
+        handleUpdateProgress(kpi.id, 100);
+    };
+
+    const handleKRChange = (krId: string) => {
+        if (!krId) {
+            setForm({ ...form, linkedKRId: '', linkedOKRId: '' });
+            return;
+        }
+        const combined = okrs; // For Department KPIs, only use Department OKRs
+        let parentId = '';
+        for (const o of combined) {
+            if (o.keyResults?.some((kr: any) => (kr.id || kr._id) === krId)) {
+                parentId = (o.id || o._id) as string;
+                break;
+            }
+        }
+        setForm({ ...form, linkedKRId: krId, linkedOKRId: parentId });
     };
 
     const openEditModal = (kpi: KPI) => {
@@ -161,9 +185,8 @@ export const DepartmentKPIs: React.FC = () => {
         setForm({
             title: kpi.title,
             description: kpi.description || '',
-            targetValue: kpi.targetValue,
-            unit: kpi.unit,
             linkedOKRId: kpi.linkedOKRId || '',
+            linkedKRId: kpi.linkedKRId || '',
             endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : ''
         });
         setShowModal(true);
@@ -172,7 +195,7 @@ export const DepartmentKPIs: React.FC = () => {
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', targetValue: 0, unit: '', department: selectedDept || user?.department || '', linkedOKRId: '', endDate: '' });
+        setForm({ title: '', description: '', department: selectedDept || user?.department || '', linkedOKRId: '', linkedKRId: '', endDate: '' });
     };
 
     const getStatusColor = (status: string) => {
@@ -254,20 +277,13 @@ export const DepartmentKPIs: React.FC = () => {
                                 {kpi.linkedOKRTitle && (
                                     <div className="mb-4 p-2 bg-indigo-50 rounded-lg">
                                         <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">Liên kết OKR</p>
-                                        <p className="text-xs text-indigo-700 font-medium truncate">{kpi.linkedOKRTitle}</p>
+                                        <p className="text-xs text-indigo-700 font-medium truncate">
+                                            {kpi.linkedOKRTitle} {kpi.linkedKRTitle ? `> ${kpi.linkedKRTitle}` : ''}
+                                        </p>
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                    <div className="bg-slate-50 p-3 rounded-xl">
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Hiện tại</p>
-                                        <p className="text-lg font-bold text-slate-800">{kpi.currentValue} {kpi.unit}</p>
-                                    </div>
-                                    <div className="bg-slate-50 p-3 rounded-xl">
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Mục tiêu</p>
-                                        <p className="text-lg font-bold text-slate-800">{kpi.targetValue} {kpi.unit}</p>
-                                    </div>
-                                </div>
+
 
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-end">
@@ -281,13 +297,27 @@ export const DepartmentKPIs: React.FC = () => {
                             </div>
 
                             <div className="bg-slate-50 px-6 py-4 flex justify-between items-center border-t border-slate-100">
-                                <button
-                                    onClick={() => handleMarkAsCompleted(kpi)}
-                                    className="text-emerald-600 text-sm font-bold hover:underline"
-                                    title="Đánh dấu hoàn thành"
-                                >
-                                    Hoàn thành
-                                </button>
+                                <div className="flex items-center space-x-3">
+                                    <button
+                                        onClick={() => {
+                                            const newVal = prompt('Nhập tiến độ mới (%)', kpi.progress.toString());
+                                            if (newVal !== null) {
+                                                const progress = parseInt(newVal);
+                                                if (!isNaN(progress)) handleUpdateProgress(kpi.id, progress);
+                                            }
+                                        }}
+                                        className="text-indigo-600 text-sm font-bold hover:underline"
+                                    >
+                                        Cập nhật
+                                    </button>
+                                    <button
+                                        onClick={() => handleMarkAsCompleted(kpi)}
+                                        className="text-emerald-600 text-sm font-bold hover:underline"
+                                        title="Đánh dấu hoàn thành"
+                                    >
+                                        Hoàn thành
+                                    </button>
+                                </div>
                                 {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
                                     <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onClick={() => openEditModal(kpi)} className="text-slate-600 text-sm font-bold hover:underline">Sửa</button>
@@ -349,52 +379,38 @@ export const DepartmentKPIs: React.FC = () => {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Giá trị mục tiêu</label>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Trọng số (Thang điểm 1-10)</label>
+                            <div className="flex items-center space-x-4">
                                 <input
-                                    type="number"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                    value={form.targetValue || ''}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        setForm({ ...form, targetValue: val === '' ? 0 : Number(val) });
-                                    }}
+                                    type="range"
+                                    min="1"
+                                    max="10"
+                                    step="1"
+                                    className="flex-1 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                    value={(form as any).weight || 1}
+                                    onChange={e => setForm({ ...form, weight: parseInt(e.target.value) || 1 } as any)}
                                 />
+                                <span className="text-sm font-bold text-indigo-600 w-8">{(form as any).weight || 1}</span>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Đơn vị</label>
-                                <input
-                                    type="text"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={form.unit}
-                                    onChange={e => setForm({ ...form, unit: e.target.value })}
-                                />
-                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">* 1: Thấp nhất, 10: Quan trọng nhất. KPI trọng số cao ảnh hưởng nhiều đến điểm hiệu suất.</p>
                         </div>
 
+
+
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết OKR (tùy chọn)</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mục tiêu OKR liên kết (tùy chọn)</label>
                             <select
                                 className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.linkedOKRId}
-                                onChange={e => setForm({ ...form, linkedOKRId: e.target.value })}
+                                value={form.linkedKRId}
+                                onChange={e => handleKRChange(e.target.value)}
                             >
-                                <option value="">-- Không liên kết --</option>
-                                <optgroup label="OKR Phòng ban">
-                                    {okrs.filter(o => o.department === (selectedDept || user?.department)).map(okr => (
-                                        <option key={okr.id} value={okr.id}>{okr.title}</option>
-                                    ))}
+                                <option value="">-- Mục tiêu OKR --</option>
+                                <optgroup label="--- OKRs PHÒNG BAN ---">
+                                    {okrs.filter(o => o.department === (selectedDept || user?.department)).map(o => o.keyResults?.map(kr => (
+                                        <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
+                                    )))}
                                 </optgroup>
-                                {personalOkrs.length > 0 && (
-                                    <optgroup label="OKR Cá nhân">
-                                        {personalOkrs.map(okr => (
-                                            <option key={okr.id || okr._id} value={okr.id || okr._id}>{okr.title}</option>
-                                        ))}
-                                    </optgroup>
-                                )}
                             </select>
                         </div>
 

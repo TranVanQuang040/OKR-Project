@@ -10,6 +10,14 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
   }
 
   const res = await fetch(base + path, { ...options, headers });
+
+  if (res.status === 401) {
+    localStorage.removeItem('okr_auth_token');
+    localStorage.removeItem('okr_session_user');
+    window.location.href = '/login';
+    return;
+  }
+
   const text = await res.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch (e) { body = text; }

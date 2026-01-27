@@ -438,102 +438,128 @@ export const PersonalKPIs: React.FC = () => {
             )}
 
             {showModal && isManager && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-lg font-bold">{editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI cá nhân'}</h3>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nhân viên</label>
-                            <select
-                                required
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.assignedTo}
-                                onChange={e => setForm({ ...form, assignedTo: e.target.value })}
-                                disabled={!!editingKPI}
-                            >
-                                <option value="">-- Chọn nhân viên --</option>
-                                {users.map(u => (
-                                    <option key={u.id} value={u.id}>{u.name} - {u.department} ({u.email})</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
-                            <label className="block text-[10px] font-bold text-indigo-500 uppercase mb-1 tracking-wider">Chọn từ công việc đã giao</label>
-                            <select
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                                value={form.linkedTaskId}
-                                onChange={e => handleTaskChange(e.target.value)}
-                            >
-                                <option value="">-- Lấy thông tin từ công việc --</option>
-                                {tasks.filter(t => form.assignedTo ? t.assigneeId === form.assignedTo : true).map(task => (
-                                    <option key={task.id} value={task.id}>
-                                        {task.title} ({task.assigneeName})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên KPI</label>
-                            <input
-                                type="text"
-                                required
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.title}
-                                onChange={e => setForm({ ...form, title: e.target.value })}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả (tùy chọn)</label>
-                            <textarea
-                                rows={2}
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.description}
-                                onChange={e => setForm({ ...form, description: e.target.value })}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Trọng số (Thang điểm 1-10)</label>
-                            <div className="flex items-center space-x-4">
-                                <input
-                                    type="range"
-                                    min="1"
-                                    max="10"
-                                    step="1"
-                                    className="flex-1 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                                    value={(form as any).weight || 1}
-                                    onChange={e => setForm({ ...form, weight: parseInt(e.target.value) || 1 } as any)}
-                                />
-                                <span className="text-sm font-bold text-indigo-600 w-8">{(form as any).weight || 1}</span>
+                <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm">
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white w-full max-w-lg h-full shadow-2xl animate-in slide-in-from-right duration-500 overflow-y-auto"
+                    >
+                        <div className="p-8 space-y-8">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                                        {editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI Mới'}
+                                    </h3>
+                                    <p className="text-sm text-slate-400 font-medium">Thiết lập chỉ số quan trọng cho nhân sự</p>
+                                </div>
+                                <button onClick={closeModal} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                                    <span className="material-icons">close</span>
+                                </button>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1">* 1: Thấp nhất, 10: Quan trọng nhất. KPI trọng số cao ảnh hưởng nhiều đến điểm hiệu suất.</p>
+
+                            <form onSubmit={handleSubmit} className="space-y-6 pb-20">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Nhân sự thực hiện</label>
+                                    <select
+                                        required
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 transition-all appearance-none cursor-pointer"
+                                        value={form.assignedTo}
+                                        onChange={e => setForm({ ...form, assignedTo: e.target.value })}
+                                        disabled={!!editingKPI}
+                                    >
+                                        <option value="">-- Chọn nhân viên --</option>
+                                        {users.map(u => (
+                                            <option key={u.id} value={u.id}>{u.name} • {u.department}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-3xl border border-indigo-100 shadow-sm space-y-3">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                        <span className="material-icons text-indigo-500 text-sm">auto_awesome</span>
+                                        <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest">Tiện ích gán nhanh</label>
+                                    </div>
+                                    <select
+                                        className="w-full p-3 bg-white border border-indigo-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-slate-700 shadow-sm"
+                                        value={form.linkedTaskId}
+                                        onChange={e => handleTaskChange(e.target.value)}
+                                    >
+                                        <option value="">-- Lấy thông tin từ công việc --</option>
+                                        {tasks.filter(t => form.assignedTo ? t.assigneeId === form.assignedTo : true).map(task => (
+                                            <option key={task.id} value={task.id}>
+                                                {task.title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[9px] text-indigo-400 font-bold">* Tự động điền thông tin Objective và KR liên kết từ công việc.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Chỉ số KPI (Tiêu đề)</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Ví dụ: Tăng trưởng doanh thu cá nhân..."
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all"
+                                        value={form.title}
+                                        onChange={e => setForm({ ...form, title: e.target.value })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Mô tả mục tiêu</label>
+                                    <textarea
+                                        rows={3}
+                                        placeholder="Chi tiết về cách thức đo lường và kỳ vọng..."
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all"
+                                        value={form.description}
+                                        onChange={e => setForm({ ...form, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Trọng số ưu tiên (1-10)</label>
+                                        <span className="px-3 py-1 bg-indigo-600 text-white rounded-full text-xs font-black">{(form as any).weight || 1}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="10"
+                                        step="1"
+                                        className="w-full h-2 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600"
+                                        value={(form as any).weight || 1}
+                                        onChange={e => setForm({ ...form, weight: parseInt(e.target.value) || 1 } as any)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Hạn hoàn thành</label>
+                                    <input
+                                        type="date"
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all text-slate-700"
+                                        value={form.endDate}
+                                        onChange={e => setForm({ ...form, endDate: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t border-slate-100 flex space-x-4 max-w-lg ml-auto">
+                                    <button
+                                        type="button"
+                                        onClick={closeModal}
+                                        className="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                                    >
+                                        Hủy bỏ
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 hover:-translate-y-1 transition-all"
+                                    >
+                                        {editingKPI ? 'Cập nhật thay đổi' : 'Giao KPI ngay'}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
-
-
-
-
-
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hạn hoàn thành</label>
-                            <input
-                                type="date"
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.endDate}
-                                onChange={e => setForm({ ...form, endDate: e.target.value })}
-                            />
-                        </div>
-
-                        <div className="flex justify-end space-x-2 pt-4">
-                            <button type="button" onClick={closeModal} className="px-4 py-2 text-slate-600 font-bold text-sm">Hủy</button>
-                            <button type="submit" className="px-6 py-2 rounded-lg font-bold text-sm shadow-lg shadow-indigo-100 bg-indigo-600 text-white">
-                                {editingKPI ? 'Lưu thay đổi' : 'Gán KPI'}
-                            </button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
             )}
         </div>

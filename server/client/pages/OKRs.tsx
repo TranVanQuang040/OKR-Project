@@ -5,6 +5,7 @@ import { Objective, KeyResult, ObjectiveStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { dataService } from '../services/dataService';
 import * as okrService from '../services/okrService';
+import { getDepartments } from '../services/departmentService';
 
 export const OKRs: React.FC = () => {
   const { user, selectedPeriod } = useAuth();
@@ -19,13 +20,15 @@ export const OKRs: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [okrs, setOkrs] = useState<Objective[]>([]);
   const [pendingKRs, setPendingKRs] = useState<any[]>([]);
-  const [manualKR, setManualKR] = useState({ title: '', weight: 1, source: 'MANUAL', confidenceScore: 10 });
+  const [manualKR, setManualKR] = useState({ title: '', weight: 1, unit: '%', targetValue: 100, source: 'MANUAL', confidenceScore: 10 });
   const [showMoreOptions, setShowMoreOptions] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [targetDepartment, setTargetDepartment] = useState('');
 
   const adaptOKR = (okr: any) => ({
     ...okr,
@@ -47,7 +50,24 @@ export const OKRs: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadOKRs(); }, [selectedPeriod]);
+  const loadDepartments = async () => {
+    try {
+      const data = await getDepartments();
+      setDepartments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load departments', err);
+      setDepartments([]);
+    }
+  };
+
+  useEffect(() => {
+    loadOKRs();
+    loadDepartments();
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    loadDepartments();
+  }, []);
 
   const handleGenerateKRs = async () => {
     if (!newObjective) return;
@@ -70,7 +90,7 @@ export const OKRs: React.FC = () => {
       return;
     }
     setPendingKRs([...pendingKRs, { ...manualKR, id: `kr-${Date.now()}` }]);
-    setManualKR({ title: '', weight: 1, source: 'MANUAL', confidenceScore: 10 });
+    setManualKR({ title: '', weight: 1, unit: '%', targetValue: 100, source: 'MANUAL', confidenceScore: 10 });
   };
 
   const validateKRs = (krs: any[]) => {
@@ -96,10 +116,10 @@ export const OKRs: React.FC = () => {
       tags: tags.split(',').map(t => t.trim()).filter(t => t),
       ownerId: user?.id,
       ownerName: user?.name,
-      department: user?.department,
+      department: okrType === 'DEPARTMENT' ? (targetDepartment || user?.department) : (okrType === 'PERSONAL' ? 'Cá nhân' : user?.department),
       quarter: selectedPeriod.quarter,
       year: selectedPeriod.year,
-      status: editingOKRId ? undefined : 'PENDING_APPROVAL',
+      status: editingOKRId ? undefined : (okrType === 'PERSONAL' ? 'DRAFT' : 'PENDING_APPROVAL'),
       keyResults: pendingKRs.map(kr => ({
         id: kr.id && !kr.id.startsWith('kr-') ? kr.id : undefined,
         title: kr.title,
@@ -116,15 +136,28 @@ export const OKRs: React.FC = () => {
     setIsSubmitting(true);
     try {
       if (editingOKRId) {
-        const res = await okrService.updateOKR(editingOKRId, payload);
+        let res;
+        if (okrType === 'PERSONAL') {
+          res = await okrService.updateMyOKR(editingOKRId, payload);
+        } else {
+          res = await okrService.updateOKR(editingOKRId, payload);
+        }
         const adapted = adaptOKR(res);
         setStatusMessage('Cập nhật OKR thành công');
         setOkrs(prev => prev.map(o => o.id === adapted.id ? adapted : o));
       } else {
-        const res = await okrService.createOKR(payload);
+        let res;
+        if (okrType === 'PERSONAL') {
+          res = await okrService.createMyOKR(payload);
+        } else {
+          res = await okrService.createOKR(payload);
+        }
         const adapted = adaptOKR(res);
         setStatusMessage('Tạo OKR thành công');
-        setOkrs(prev => [adapted, ...prev]);
+        // If it was a personal OKR, we might want to fetch all just in case, but let's add it to local state if appropriate
+        // However, usually OKRs.tsx shows Department OKRs.
+        // Let's reload everything to be sure.
+        await loadOKRs();
       }
       setTimeout(() => setStatusMessage(''), 3000);
       setShowModal(false);
@@ -134,6 +167,29 @@ export const OKRs: React.FC = () => {
       alert('Không thể lưu OKR: ' + (err.message || 'Unknown error'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const approveOKR = async (id: string) => {
+    try {
+      await okrService.updateOKRStatus(id, 'APPROVED');
+      setStatusMessage('Đã phê duyệt OKR');
+      loadOKRs();
+      setTimeout(() => setStatusMessage(''), 3000);
+    } catch (err) {
+      alert('Không thể phê duyệt');
+    }
+  };
+
+  const rejectOKR = async (id: string) => {
+    if (!confirm('Từ chối OKR này?')) return;
+    try {
+      await okrService.updateOKRStatus(id, 'REJECTED');
+      setStatusMessage('Đã từ chối OKR');
+      loadOKRs();
+      setTimeout(() => setStatusMessage(''), 3000);
+    } catch (err) {
+      alert('Không thể từ chối');
     }
   };
 
@@ -147,6 +203,27 @@ export const OKRs: React.FC = () => {
     setPendingKRs([]);
     setEditingOKRId(null);
     setShowMoreOptions(false);
+    setTargetDepartment(user?.department || '');
+  };
+
+  const openNewModal = () => {
+    resetForm();
+    setShowModal(true);
+    loadDepartments();
+  };
+
+  const openEditModal = (okr: Objective) => {
+    setEditingOKRId(okr.id);
+    setNewObjective(okr.title);
+    setDescription(okr.description || '');
+    setOkrType(okr.type || 'DEPARTMENT');
+    setPriority(okr.priority || 'MEDIUM');
+    setParentId(okr.parentId || '');
+    setTags(okr.tags?.join(', ') || '');
+    setPendingKRs(okr.keyResults);
+    setTargetDepartment(okr.department || '');
+    setShowModal(true);
+    loadDepartments();
   };
 
   const deleteOKR = async (id: string) => {
@@ -167,14 +244,14 @@ export const OKRs: React.FC = () => {
 
   const displayOkrs = okrs.filter(o =>
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year &&
-    (user?.role === 'ADMIN' || o.department === user?.department)
+    (user?.role === 'ADMIN' || o.department === user?.department || o.ownerId === user?.id)
   );
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">OKR {selectedPeriod.quarter}/{selectedPeriod.year}</h2>
-        <button onClick={() => { setShowModal(true); resetForm(); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tạo OKR mới</button>
+        <button onClick={openNewModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tạo OKR mới</button>
       </div>
 
       {statusMessage && (
@@ -200,6 +277,12 @@ export const OKRs: React.FC = () => {
                       }`}>
                       {okr.priority || 'MEDIUM'}
                     </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${okr.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
+                      okr.status === 'PENDING_APPROVAL' ? 'bg-amber-100 text-amber-600' :
+                        okr.status === 'REJECTED' ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                      {okr.status === 'APPROVED' ? 'Đã duyệt' : okr.status === 'PENDING_APPROVAL' ? 'Chờ duyệt' : okr.status === 'REJECTED' ? 'Từ chối' : 'Nháp'}
+                    </span>
                     <span className="text-xs font-bold text-indigo-600">{okr.ownerName} - {okr.department}</span>
                   </div>
                   <h3 className="text-lg font-bold">{okr.title}</h3>
@@ -214,18 +297,14 @@ export const OKRs: React.FC = () => {
                     <span className="text-2xl font-black text-indigo-600">{okr.progress}%</span>
                     <p className="text-[10px] text-slate-400 font-bold uppercase">{okr.status}</p>
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 flex space-x-1">
-                    <button onClick={() => {
-                      setEditingOKRId(okr.id);
-                      setNewObjective(okr.title);
-                      setDescription(okr.description || '');
-                      setOkrType(okr.type || 'DEPARTMENT');
-                      setPriority(okr.priority || 'MEDIUM');
-                      setParentId(okr.parentId || '');
-                      setTags(okr.tags?.join(', ') || '');
-                      setPendingKRs(okr.keyResults);
-                      setShowModal(true);
-                    }} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors">
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1">
+                    {user?.role === 'ADMIN' && okr.status === 'PENDING_APPROVAL' && (
+                      <>
+                        <button onClick={() => approveOKR(okr.id)} className="p-1 px-2 bg-emerald-500 text-white rounded text-[10px] font-bold hover:bg-emerald-600 transition-colors">DUYỆT</button>
+                        <button onClick={() => rejectOKR(okr.id)} className="p-1 px-2 bg-rose-500 text-white rounded text-[10px] font-bold hover:bg-rose-600 transition-colors">TỪ CHỐI</button>
+                      </>
+                    )}
+                    <button onClick={() => openEditModal(okr)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors">
                       <span className="material-icons">edit</span>
                     </button>
                     <button onClick={() => deleteOKR(okr.id)} disabled={deletingId === okr.id} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
@@ -285,9 +364,8 @@ export const OKRs: React.FC = () => {
                   <select
                     value={okrType}
                     onChange={e => setOkrType(e.target.value as any)}
-                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
                   >
-                    <option value="COMPANY">Cấp Công ty</option>
                     <option value="DEPARTMENT">Cấp Phòng ban</option>
                     <option value="PERSONAL">Cấp Cá nhân</option>
                   </select>
@@ -297,7 +375,7 @@ export const OKRs: React.FC = () => {
                   <select
                     value={priority}
                     onChange={e => setPriority(e.target.value as any)}
-                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
                   >
                     <option value="LOW">Thấp (Low)</option>
                     <option value="MEDIUM">Trung bình (Medium)</option>
@@ -305,6 +383,22 @@ export const OKRs: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {okrType === 'DEPARTMENT' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase px-1">Phòng ban gán cho</label>
+                  <select
+                    value={targetDepartment}
+                    onChange={e => setTargetDepartment(e.target.value)}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
+                  >
+                    <option value="">-- Chọn phòng ban --</option>
+                    {departments.map((d, idx) => (
+                      <option key={d._id || d.id || `dept-${idx}`} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <button
                 onClick={() => setShowMoreOptions(!showMoreOptions)}
@@ -324,9 +418,16 @@ export const OKRs: React.FC = () => {
                       className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
                     >
                       <option value="">-- Không liên kết --</option>
-                      {okrs.filter(o => o.id !== editingOKRId && o.type !== 'PERSONAL').map(o => (
-                        <option key={o.id} value={o.id}>[{o.type}] {o.title}</option>
-                      ))}
+                      {okrs
+                        .filter(o => {
+                          if (o.id === editingOKRId) return false;
+                          if (okrType === 'PERSONAL') return o.type === 'DEPARTMENT';
+                          if (okrType === 'DEPARTMENT') return o.type === 'COMPANY';
+                          return false;
+                        })
+                        .map(o => (
+                          <option key={o.id} value={o.id}>[{o.type}] {o.title}</option>
+                        ))}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -358,13 +459,39 @@ export const OKRs: React.FC = () => {
                 </div>
 
                 <div className="flex space-x-2 items-center">
-                  <input type="text" placeholder="Tên KR (Ví dụ: Doanh thu đạt 1 tỷ)" className="flex-1 border p-2 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500" value={manualKR.title} onChange={e => setManualKR({ ...manualKR, title: e.target.value })} />
+                  <input
+                    type="text"
+                    placeholder="Tên KR (Ví dụ: Doanh thu đạt 1 tỷ)"
+                    className="flex-1 border p-2 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                    value={manualKR.title}
+                    onChange={e => setManualKR({ ...manualKR, title: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Mục tiêu"
+                    className="w-20 border p-2 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                    value={manualKR.targetValue}
+                    onChange={e => setManualKR({ ...manualKR, targetValue: parseInt(e.target.value) || 100 })}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Đơn vị"
+                    className="w-20 border p-2 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                    value={manualKR.unit}
+                    onChange={e => setManualKR({ ...manualKR, unit: e.target.value })}
+                  />
                   <div className="flex items-center space-x-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">W:</span>
-                    <input type="range" min="1" max="10" step="1" className="w-16 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" value={manualKR.weight} onChange={e => setManualKR({ ...manualKR, weight: parseInt(e.target.value) || 1 })} />
-                    <span className="text-xs font-bold text-indigo-600 w-4">{manualKR.weight}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      className="w-12 p-1 border border-slate-200 rounded text-center text-xs font-bold text-indigo-600 outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                      value={manualKR.weight}
+                      onChange={e => setManualKR({ ...manualKR, weight: parseInt(e.target.value) || 1 })}
+                    />
                   </div>
-                  <button onClick={addManualKR} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                  <button onClick={addManualKR} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-all shadow-sm">
                     <span className="material-icons">add</span>
                   </button>
                 </div>
@@ -425,7 +552,8 @@ export const OKRs: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 };

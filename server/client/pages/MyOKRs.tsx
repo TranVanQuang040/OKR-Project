@@ -50,6 +50,7 @@ export const MyOKRs: React.FC = () => {
 
   const displayOkrs = okrs.filter(o =>
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year &&
+    o.status === 'APPROVED' &&
     (filterType === 'ALL' || (filterType === 'PERSONAL' && o.type === 'PERSONAL') || (filterType === 'DEPARTMENT' && o.type === 'DEPARTMENT'))
   );
 

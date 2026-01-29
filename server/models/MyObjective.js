@@ -26,7 +26,9 @@ const myObjectiveSchema = new mongoose.Schema({
   year: { type: Number, required: true },
   status: { type: String, default: 'DRAFT' },
   progress: { type: Number, default: 0 },
-  keyResults: [keyResultSchema]
+  keyResults: [keyResultSchema],
+  startDate: { type: Date },
+  endDate: { type: Date }
 }, { timestamps: true });
 
 export default mongoose.model('MyObjective', myObjectiveSchema);

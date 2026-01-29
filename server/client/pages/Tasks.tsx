@@ -163,7 +163,7 @@ export const Tasks: React.FC = () => {
             <div className="flex justify-between items-start mb-2">
               <h4 className="font-bold text-slate-800 line-clamp-1">{task.title}</h4>
               <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${task.priority === 'HIGH' ? 'bg-red-50 text-red-600' :
-                  task.priority === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-600'
+                task.priority === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-600'
                 }`}>
                 {task.priority}
               </span>
@@ -195,7 +195,7 @@ export const Tasks: React.FC = () => {
                   value={task.status}
                   onChange={e => updateStatus(task.id, e.target.value as any)}
                   className={`text-[10px] font-bold border rounded-lg px-2 py-1 outline-none ${task.status === 'DONE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                      task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
+                    task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
                     }`}
                 >
                   <option value="TODO">TO DO</option>
@@ -248,9 +248,11 @@ export const Tasks: React.FC = () => {
                   {myOkrs.length > 0 && (
                     <>
                       <optgroup label="---OKRs cá nhân---">
-                        {myOkrs.map(o => o.keyResults && o.keyResults.map(kr => (
-                          <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
-                        )))}
+                        {myOkrs.map(o => o.keyResults && o.keyResults
+                          .filter(kr => !tasks.some(t => t.krId === (kr.id || kr._id)) || (kr.id || kr._id) === editingTask?.krId)
+                          .map(kr => (
+                            <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
+                          )))}
                       </optgroup>
                     </>
                   )}

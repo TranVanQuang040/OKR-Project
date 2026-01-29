@@ -60,10 +60,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (savedUser) {
         setUser(JSON.parse(savedUser));
       }
-      
+
       const savedPeriod = localStorage.getItem('okr_selected_period');
       if (savedPeriod) setSelectedPeriod(JSON.parse(savedPeriod));
-      
+
       refreshUsers();
       setIsLoading(false);
     };
@@ -79,11 +79,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const data = await res.json();
       if (!res.ok) return false;
-      const { token, user } = data;
-      if (user && typeof user === 'object') user.id = user._id || user.id;
+      const { token, user: loggedInUser } = data;
+      if (loggedInUser && typeof loggedInUser === 'object') loggedInUser.id = loggedInUser._id || loggedInUser.id;
       localStorage.setItem('okr_auth_token', token);
-      localStorage.setItem('okr_session_user', JSON.stringify(user));
-      setUser(user);
+      localStorage.setItem('okr_session_user', JSON.stringify(loggedInUser));
+      setUser(loggedInUser);
       return true;
     } catch (err) {
       // fallback to local users
@@ -142,10 +142,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Register failed');
-      const { token, user } = data;
+      const { token, user: registeredUser } = data;
       localStorage.setItem('okr_auth_token', token);
-      localStorage.setItem('okr_session_user', JSON.stringify(user));
-      setUser(user);
+      localStorage.setItem('okr_session_user', JSON.stringify(registeredUser));
+      setUser(registeredUser);
       refreshUsers();
     } catch (err) {
       // fallback: create local user
@@ -160,7 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ 
+    <AuthContext.Provider value={{
       user, allUsers, login, logout, createUser, refreshUsers, updateAvatar,
       isAuthenticated: !!user, isLoading, selectedPeriod,
       setSelectedPeriod: (p) => {

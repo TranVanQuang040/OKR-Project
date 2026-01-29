@@ -17,7 +17,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
 function validateAndPrepareOKR(body) {
   if (!body || typeof body !== 'object') throw new Error('Missing body');
-  const { title, keyResults, quarter, year, ownerId, ownerName, department, status, description, type, parentId, priority, tags } = body;
+  const { title, keyResults, quarter, year, ownerId, ownerName, department, status, description, type, parentId, priority, tags, startDate, endDate } = body;
   if (!title || String(title).trim() === '') throw new Error('Missing title');
   if (!quarter) throw new Error('Missing quarter');
   if (!year || isNaN(Number(year))) throw new Error('Missing or invalid year');
@@ -50,6 +50,7 @@ function validateAndPrepareOKR(body) {
     priority: priority || 'MEDIUM',
     tags: Array.isArray(tags) ? tags : [],
     quarter, year: Number(year), ownerId, ownerName, department, status: status || 'DRAFT',
+    startDate, endDate,
     keyResults: cleanedKRs
   };
 }
@@ -89,6 +90,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
     okr.ownerId = payload.ownerId || okr.ownerId;
     okr.ownerName = payload.ownerName || okr.ownerName;
     okr.department = payload.department || okr.department;
+    okr.startDate = payload.startDate;
+    okr.endDate = payload.endDate;
     if (req.body.status) okr.status = req.body.status;
     okr.keyResults = payload.keyResults;
 

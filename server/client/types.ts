@@ -57,6 +57,8 @@ export interface Objective {
   status: ObjectiveStatus;
   progress: number;
   keyResults: KeyResult[];
+  startDate?: string;
+  endDate?: string;
   createdAt: string;
 }
 
@@ -75,6 +77,8 @@ export interface MyObjective {
   year: number;
   status: string;
   keyResults: KeyResult[];
+  startDate?: string;
+  endDate?: string;
   createdAt: string;
   updatedAt: string;
 }

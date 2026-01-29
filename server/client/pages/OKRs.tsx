@@ -5,6 +5,7 @@ import { Objective, KeyResult, ObjectiveStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { dataService } from '../services/dataService';
 import * as okrService from '../services/okrService';
+import * as myOkrService from '../services/myOkrService';
 import { getDepartments } from '../services/departmentService';
 
 export const OKRs: React.FC = () => {
@@ -22,6 +23,10 @@ export const OKRs: React.FC = () => {
   const [pendingKRs, setPendingKRs] = useState<any[]>([]);
   const [manualKR, setManualKR] = useState({ title: '', weight: 1, unit: '%', targetValue: 100, source: 'MANUAL', confidenceScore: 10 });
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'PENDING'>('ALL');
+  const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -36,13 +41,42 @@ export const OKRs: React.FC = () => {
     keyResults: (okr.keyResults || []).map((kr: any) => ({ ...kr, id: kr._id || kr.id }))
   });
 
+  const getTimeRemaining = (endDate: string) => {
+    if (!endDate) return null;
+    try {
+      const end = new Date(endDate);
+      if (isNaN(end.getTime())) return null;
+      const total = end.getTime() - new Date().getTime();
+      const days = Math.floor(total / (1000 * 60 * 60 * 24));
+      if (days < 0) return 'Quá hạn';
+      return `${days} ngày `;
+    } catch (e) {
+      return null;
+    }
+  };
+
   const loadOKRs = async () => {
     setIsLoading(true);
     try {
-      const data = await okrService.getOKRs({ quarter: selectedPeriod.quarter, year: selectedPeriod.year });
-      setOkrs((data || []).map((o: any) => adaptOKR(o)));
+      const [deptData, personalData] = await Promise.all([
+        okrService.getOKRs({ quarter: selectedPeriod.quarter, year: selectedPeriod.year }),
+        myOkrService.getMyOKRs({ quarter: selectedPeriod.quarter, year: selectedPeriod.year })
+      ]);
+
+      const combined = [
+        ...(deptData || []).map((o: any) => adaptOKR(o)),
+        ...(personalData || []).map((o: any) => adaptOKR(o))
+      ];
+
+      // Filter unique by ID and sort by createdAt
+      const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+      const sorted = unique.sort((a: any, b: any) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA || String(b.id).localeCompare(String(a.id));
+      });
+      setOkrs(sorted);
     } catch (err) {
-      // fallback to local storage
       const data = await dataService.getOKRs();
       setOkrs((data || []).map((o: any) => adaptOKR(o)));
     } finally {
@@ -119,7 +153,9 @@ export const OKRs: React.FC = () => {
       department: okrType === 'DEPARTMENT' ? (targetDepartment || user?.department) : (okrType === 'PERSONAL' ? 'Cá nhân' : user?.department),
       quarter: selectedPeriod.quarter,
       year: selectedPeriod.year,
-      status: editingOKRId ? undefined : (okrType === 'PERSONAL' ? 'DRAFT' : 'PENDING_APPROVAL'),
+      status: editingOKRId ? undefined : 'PENDING_APPROVAL',
+      startDate,
+      endDate,
       keyResults: pendingKRs.map(kr => ({
         id: kr.id && !kr.id.startsWith('kr-') ? kr.id : undefined,
         title: kr.title,
@@ -171,8 +207,14 @@ export const OKRs: React.FC = () => {
   };
 
   const approveOKR = async (id: string) => {
+    const okr = okrs.find(o => o.id === id);
+    if (!okr) return;
     try {
-      await okrService.updateOKRStatus(id, 'APPROVED');
+      if (okr.type === 'PERSONAL') {
+        await myOkrService.updateMyOKRStatus(id, 'APPROVED');
+      } else {
+        await okrService.updateOKRStatus(id, 'APPROVED');
+      }
       setStatusMessage('Đã phê duyệt OKR');
       loadOKRs();
       setTimeout(() => setStatusMessage(''), 3000);
@@ -183,8 +225,14 @@ export const OKRs: React.FC = () => {
 
   const rejectOKR = async (id: string) => {
     if (!confirm('Từ chối OKR này?')) return;
+    const okr = okrs.find(o => o.id === id);
+    if (!okr) return;
     try {
-      await okrService.updateOKRStatus(id, 'REJECTED');
+      if (okr.type === 'PERSONAL') {
+        await myOkrService.updateMyOKRStatus(id, 'REJECTED');
+      } else {
+        await okrService.updateOKRStatus(id, 'REJECTED');
+      }
       setStatusMessage('Đã từ chối OKR');
       loadOKRs();
       setTimeout(() => setStatusMessage(''), 3000);
@@ -204,6 +252,8 @@ export const OKRs: React.FC = () => {
     setEditingOKRId(null);
     setShowMoreOptions(false);
     setTargetDepartment(user?.department || '');
+    setStartDate('');
+    setEndDate('');
   };
 
   const openNewModal = () => {
@@ -222,19 +272,36 @@ export const OKRs: React.FC = () => {
     setTags(okr.tags?.join(', ') || '');
     setPendingKRs(okr.keyResults);
     setTargetDepartment(okr.department || '');
+    const formatToDateInput = (d: any) => {
+      if (!d) return '';
+      try {
+        const date = new Date(d);
+        if (isNaN(date.getTime())) return '';
+        return date.toISOString().split('T')[0];
+      } catch { return ''; }
+    };
+    setStartDate(formatToDateInput(okr.startDate));
+    setEndDate(formatToDateInput(okr.endDate));
     setShowModal(true);
     loadDepartments();
   };
 
-  const deleteOKR = async (id: string) => {
+  const deleteOKR = async (okr: Objective) => {
     if (!confirm('Xóa OKR này?')) return;
+    const id = okr.id;
     setDeletingId(id);
     try {
-      await okrService.deleteOKR(id);
+      if (okr.type === 'PERSONAL') {
+        await myOkrService.deleteMyOKR(id);
+      } else {
+        await okrService.deleteOKR(id);
+      }
       setStatusMessage('Xóa OKR thành công');
       setTimeout(() => setStatusMessage(''), 3000);
       setOkrs(prev => prev.filter(o => o.id !== id));
     } catch (err) {
+      console.error('Delete failed', err);
+      // fallback to local storage
       await dataService.deleteOKR(id);
       await loadOKRs();
     } finally {
@@ -244,13 +311,36 @@ export const OKRs: React.FC = () => {
 
   const displayOkrs = okrs.filter(o =>
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year &&
-    (user?.role === 'ADMIN' || o.department === user?.department || o.ownerId === user?.id)
+    (user?.role === 'ADMIN' || o.department === user?.department || o.ownerId === user?.id) &&
+    (
+      filterType === 'ALL' ||
+      (filterType === 'PERSONAL' && o.type === 'PERSONAL') ||
+      (filterType === 'DEPARTMENT' && o.type === 'DEPARTMENT') ||
+      (filterType === 'PENDING' && o.status === 'PENDING_APPROVAL')
+    ) &&
+    (filterPriority === 'ALL' || o.priority === filterPriority)
   );
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">OKR {selectedPeriod.quarter}/{selectedPeriod.year}</h2>
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <button onClick={() => setFilterType('ALL')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Tất cả</button>
+          <button onClick={() => setFilterType('DEPARTMENT')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'DEPARTMENT' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Phòng ban</button>
+          <button onClick={() => setFilterType('PERSONAL')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'PERSONAL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cá nhân</button>
+          <button onClick={() => setFilterType('PENDING')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'PENDING' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Chờ duyệt</button>
+        </div>
+        <select
+          value={filterPriority}
+          onChange={e => setFilterPriority(e.target.value as any)}
+          className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="ALL">Mức ưu tiên: Tất cả</option>
+          <option value="HIGH">Ưu tiên Cao</option>
+          <option value="MEDIUM">Ưu tiên Trung bình</option>
+          <option value="LOW">Ưu tiên Thấp</option>
+        </select>
         <button onClick={openNewModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tạo OKR mới</button>
       </div>
 
@@ -284,6 +374,12 @@ export const OKRs: React.FC = () => {
                       {okr.status === 'APPROVED' ? 'Đã duyệt' : okr.status === 'PENDING_APPROVAL' ? 'Chờ duyệt' : okr.status === 'REJECTED' ? 'Từ chối' : 'Nháp'}
                     </span>
                     <span className="text-xs font-bold text-indigo-600">{okr.ownerName} - {okr.department}</span>
+                    {okr.endDate && okr.status === 'APPROVED' && (
+                      <span className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                        <span className="material-icons text-xs mr-1">timer</span>
+                        Còn {getTimeRemaining(okr.endDate)}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-lg font-bold">{okr.title}</h3>
                   {okr.tags && okr.tags.length > 0 && (
@@ -293,23 +389,25 @@ export const OKRs: React.FC = () => {
                   )}
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="text-right mr-4">
-                    <span className="text-2xl font-black text-indigo-600">{okr.progress}%</span>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">{okr.status}</p>
+                  <div className="text-right w-24 mr-4">
+                    <span className="text-2xl font-black text-indigo-600 leading-none">{okr.progress}%</span>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{okr.status}</p>
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1">
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center space-y-1 flex-col">
                     {user?.role === 'ADMIN' && okr.status === 'PENDING_APPROVAL' && (
-                      <>
+                      <div className="flex space-x-1 mb-1">
                         <button onClick={() => approveOKR(okr.id)} className="p-1 px-2 bg-emerald-500 text-white rounded text-[10px] font-bold hover:bg-emerald-600 transition-colors">DUYỆT</button>
                         <button onClick={() => rejectOKR(okr.id)} className="p-1 px-2 bg-rose-500 text-white rounded text-[10px] font-bold hover:bg-rose-600 transition-colors">TỪ CHỐI</button>
-                      </>
+                      </div>
                     )}
-                    <button onClick={() => openEditModal(okr)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors">
-                      <span className="material-icons">edit</span>
-                    </button>
-                    <button onClick={() => deleteOKR(okr.id)} disabled={deletingId === okr.id} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
-                      <span className="material-icons">{deletingId === okr.id ? 'hourglass_top' : 'delete'}</span>
-                    </button>
+                    <div className="flex space-x-1">
+                      <button onClick={() => openEditModal(okr)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors">
+                        <span className="material-icons text-lg">edit</span>
+                      </button>
+                      <button onClick={() => deleteOKR(okr)} disabled={deletingId === okr.id} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
+                        <span className="material-icons text-lg">{deletingId === okr.id ? 'hourglass_top' : 'delete'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -384,6 +482,27 @@ export const OKRs: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase px-1">Ngày bắt đầu</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => setStartDate(e.target.value)}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase px-1">Ngày kết thúc</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={e => setEndDate(e.target.value)}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
+                  />
+                </div>
+              </div>
+
               {okrType === 'DEPARTMENT' && (
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase px-1">Phòng ban gán cho</label>
@@ -421,6 +540,7 @@ export const OKRs: React.FC = () => {
                       {okrs
                         .filter(o => {
                           if (o.id === editingOKRId) return false;
+                          if (o.status !== 'APPROVED') return false;
                           if (okrType === 'PERSONAL') return o.type === 'DEPARTMENT';
                           if (okrType === 'DEPARTMENT') return o.type === 'COMPANY';
                           return false;

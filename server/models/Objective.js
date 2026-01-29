@@ -27,6 +27,8 @@ const ObjectiveSchema = new mongoose.Schema({
   status: { type: String, default: 'DRAFT' },
   progress: { type: Number, default: 0 },
   keyResults: [KeyResultSchema],
+  startDate: { type: Date },
+  endDate: { type: Date },
   createdAt: { type: Date, default: Date.now }
 });
 

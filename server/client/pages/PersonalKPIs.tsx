@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../services/kpiService';
 import { getOKRs, getMyOKRsByUser } from '../services/okrService';
@@ -12,22 +13,21 @@ export const PersonalKPIs: React.FC = () => {
     const [kpis, setKpis] = useState<KPI[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [okrs, setOkrs] = useState<Objective[]>([]);
-    const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
 
     const [form, setForm] = useState({
         title: '',
         description: '',
         assignedTo: '',
-        linkedOKRId: '',
-        linkedKRId: '',
         linkedTaskId: '',
-        endDate: ''
+        endDate: '',
+        weight: 1
     });
 
     const isManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -39,23 +39,6 @@ export const PersonalKPIs: React.FC = () => {
         if (isManager) loadUsers();
     }, [selectedPeriod, user]);
 
-    useEffect(() => {
-        if (form.assignedTo && isManager) {
-            loadPersonalOKRs(form.assignedTo);
-        } else {
-            setPersonalOkrs([]);
-        }
-    }, [form.assignedTo]);
-
-    const loadPersonalOKRs = async (userId: string) => {
-        try {
-            const data = await getMyOKRsByUser(userId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
-            setPersonalOkrs(data || []);
-        } catch (err) {
-            console.error('Failed to load personal OKRs', err);
-        }
-    };
-
     const loadKPIs = async () => {
         if (!user?.id) return;
 
@@ -63,15 +46,12 @@ export const PersonalKPIs: React.FC = () => {
         try {
             let data;
             if (isManager) {
-                // Managers see all personal KPIs they assigned (assigned by them)
-                // Load all PERSONAL KPIs without department filter since they can assign to different departments
                 data = await getKPIs({
                     type: 'PERSONAL',
                     quarter: selectedPeriod.quarter,
                     year: selectedPeriod.year
                 });
             } else {
-                // Employees see only their own KPIs
                 data = await getKPIs({
                     type: 'PERSONAL',
                     userId: user.id,
@@ -79,7 +59,12 @@ export const PersonalKPIs: React.FC = () => {
                     year: selectedPeriod.year
                 });
             }
-            setKpis(data || []);
+            const sorted = (data || []).sort((a: any, b: any) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return dateB - dateA || String(b.id).localeCompare(String(a.id));
+            });
+            setKpis(sorted);
         } catch (err) {
             console.error('Failed to load KPIs', err);
         } finally {
@@ -109,10 +94,8 @@ export const PersonalKPIs: React.FC = () => {
         try {
             const data = await userService.getUsers();
             if (user?.role === 'ADMIN') {
-                // Admin thấy tất cả nhân viên và manager
                 setUsers(data.filter((u: User) => u.id !== user.id));
             } else if (user?.role === 'MANAGER') {
-                // Manager lọc theo phòng ban của họ
                 const filtered = data.filter((u: User) => u.department === user?.department && u.id !== user.id);
                 setUsers(filtered);
             }
@@ -123,17 +106,9 @@ export const PersonalKPIs: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.title) {
-            return alert('Vui lòng điền đủ thông tin');
-        }
-
-        if (!isManager) {
-            return alert('Chỉ Manager mới có thể tạo KPI cá nhân');
-        }
-
-        if (!form.assignedTo) {
-            return alert('Vui lòng chọn nhân viên');
-        }
+        if (!form.title) return alert('Vui lòng điền đủ thông tin');
+        if (!isManager && !editingKPI) return alert('Chỉ Manager mới có thể tạo KPI cá nhân');
+        if (!form.assignedTo) return alert('Vui lòng chọn nhân viên');
 
         try {
             const assignedUser = users.find(u => u.id === form.assignedTo);
@@ -150,23 +125,6 @@ export const PersonalKPIs: React.FC = () => {
                 status: 'ACTIVE'
             };
 
-            // Sanitize IDs for backend
-            if (!payload.linkedOKRId) payload.linkedOKRId = null;
-            if (!payload.linkedKRId) payload.linkedKRId = null;
-            if (!payload.linkedTaskId) payload.linkedTaskId = null;
-
-            if (payload.linkedOKRId) {
-                const combinedOkrs = [...personalOkrs, ...okrs];
-                const okr = combinedOkrs.find(o => (o.id || o._id) === payload.linkedOKRId);
-                if (okr) {
-                    payload.linkedOKRTitle = okr.title;
-                    if (payload.linkedKRId) {
-                        const kr = okr.keyResults?.find((k: any) => (k.id || k._id) === payload.linkedKRId);
-                        if (kr) payload.linkedKRTitle = kr.title;
-                    }
-                }
-            }
-
             if (editingKPI) {
                 const updated = await updateKPI(editingKPI.id, payload);
                 setKpis(prev => prev.map(k => k.id === updated.id ? updated : k));
@@ -180,9 +138,7 @@ export const PersonalKPIs: React.FC = () => {
             setTimeout(() => setStatusMessage(''), 3000);
             closeModal();
         } catch (err: any) {
-            console.error('KPI Submission Error:', err);
-            const msg = err?.body?.message || err?.message || 'Không thể lưu KPI';
-            alert(`${msg} (Lỗi: ${err?.status || 'Unknown'})`);
+            alert('Không thể lưu KPI: ' + (err.message || 'Unknown error'));
         }
     };
 
@@ -195,7 +151,7 @@ export const PersonalKPIs: React.FC = () => {
             setStatusMessage('Xóa KPI thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            alert(err?.message || 'Không thể xóa KPI');
+            alert('Lỗi khi xóa KPI');
         } finally {
             setDeletingId(null);
         }
@@ -208,8 +164,7 @@ export const PersonalKPIs: React.FC = () => {
             setStatusMessage('Cập nhật tiến độ thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            console.error('Update Progress Error:', err);
-            alert(err?.message || 'Không thể cập nhật tiến độ');
+            alert('Không thể cập nhật tiến độ');
         }
     };
 
@@ -227,7 +182,8 @@ export const PersonalKPIs: React.FC = () => {
             linkedOKRId: kpi.linkedOKRId || '',
             linkedKRId: kpi.linkedKRId || '',
             linkedTaskId: kpi.linkedTaskId || '',
-            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : ''
+            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : '',
+            weight: (kpi as any).weight || 1
         });
         setShowModal(true);
     };
@@ -239,49 +195,20 @@ export const PersonalKPIs: React.FC = () => {
         }
         const task = tasks.find(t => t.id === taskId);
         if (task) {
-            let currentPersonalOkrs = personalOkrs;
-            // If task belongs to a different user, load their OKRs first
-            if (task.assigneeId && task.assigneeId !== form.assignedTo) {
-                try {
-                    const data = await getMyOKRsByUser(task.assigneeId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
-                    currentPersonalOkrs = data || [];
-                    setPersonalOkrs(currentPersonalOkrs);
-                } catch (err) {
-                    console.error('Failed to load OKRs for task assignee', err);
-                }
-            }
-
-            let parentId = '';
-            if (task.krId) {
-                const combined = currentPersonalOkrs; // Only search in personal OKRs
-                for (const o of combined) {
-                    if (o.keyResults?.some((kr: any) => (kr.id || kr._id) === task.krId)) {
-                        parentId = (o.id || o._id) as string;
-                        break;
-                    }
-                }
-            }
-
             setForm({
                 ...form,
                 linkedTaskId: taskId,
                 title: task.title,
                 description: task.description || '',
-                assignedTo: task.assigneeId || form.assignedTo,
-                linkedKRId: task.krId || '',
-                linkedOKRId: parentId
+                assignedTo: task.assigneeId || form.assignedTo
             });
         }
-    };
-
-    const handleKRChange = (krId: string) => {
-        // Function no longer needed as UI removed, but keeping logic if called from elsewhere
     };
 
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', assignedTo: '', linkedOKRId: '', linkedKRId: '', linkedTaskId: '', endDate: '' });
+        setForm({ title: '', description: '', assignedTo: '', linkedOKRId: '', linkedKRId: '', linkedTaskId: '', endDate: '', weight: 1 });
     };
 
     const getStatusColor = (status: string) => {
@@ -299,6 +226,24 @@ export const PersonalKPIs: React.FC = () => {
         return 'bg-rose-500';
     };
 
+    const getTimeRemaining = (endDate: string) => {
+        if (!endDate) return null;
+        const now = new Date();
+        const end = new Date(endDate);
+        const diff = end.getTime() - now.getTime();
+        const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+        if (days < 0) return { text: `Quá hạn ${Math.abs(days)} ngày`, color: 'text-rose-600 font-bold' };
+        if (days === 0) return { text: 'Hết hạn hôm nay', color: 'text-amber-600 font-bold' };
+        return { text: `Còn ${days} ngày`, color: 'text-indigo-600 font-medium' };
+    };
+
+    const getPriorityLabel = (weight: number) => {
+        if (weight >= 7) return { label: 'Cao (High)', color: 'bg-rose-100 text-rose-600' };
+        if (weight >= 4) return { label: 'Trung bình (Medium)', color: 'bg-amber-100 text-amber-600' };
+        return { label: 'Thấp (Low)', color: 'bg-slate-100 text-slate-600' };
+    };
+
     return (
         <div className="space-y-8">
             <div className="flex justify-between items-center">
@@ -308,15 +253,27 @@ export const PersonalKPIs: React.FC = () => {
                         {isManager ? 'Quản lý KPI cá nhân của nhân viên' : 'Theo dõi KPI cá nhân của bạn'}
                     </p>
                 </div>
-                {isManager && (
-                    <button
-                        onClick={() => { closeModal(); setShowModal(true); }}
-                        className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center space-x-2"
+                <div className="flex items-center space-x-3">
+                    <select
+                        value={filterPriority}
+                        onChange={e => setFilterPriority(e.target.value as any)}
+                        className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                        <span className="material-icons text-lg">add</span>
-                        <span>Gán KPI</span>
-                    </button>
-                )}
+                        <option value="ALL">Mức độ: Tất cả</option>
+                        <option value="HIGH">Ưu tiên: Cao</option>
+                        <option value="MEDIUM">Ưu tiên: Trung bình</option>
+                        <option value="LOW">Ưu tiên: Thấp</option>
+                    </select>
+                    {isManager && (
+                        <button
+                            onClick={() => { closeModal(); setShowModal(true); }}
+                            className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center space-x-2"
+                        >
+                            <span className="material-icons text-lg">add</span>
+                            <span>Gán KPI</span>
+                        </button>
+                    )}
+                </div>
             </div>
 
             {statusMessage && (
@@ -340,104 +297,110 @@ export const PersonalKPIs: React.FC = () => {
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Nhân viên</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">KPI</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Tiến độ</th>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Thời hạn</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Trạng thái</th>
                                     <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {kpis.map(kpi => (
-                                    <tr key={kpi.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center space-x-3">
-                                                <img
-                                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${kpi.assignedToName}`}
-                                                    className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
-                                                    alt="avatar"
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800">{kpi.assignedToName}</p>
-                                                    <p className="text-xs text-slate-500">
-                                                        {kpi.assignedToDepartment || kpi.department}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{kpi.title}</p>
-                                                {kpi.linkedOKRTitle && (
-                                                    <p className="text-xs text-indigo-600 mt-1">
-                                                        🎯 {kpi.linkedOKRTitle} {kpi.linkedKRTitle ? `> ${kpi.linkedKRTitle}` : ''}
-                                                    </p>
-                                                )}
-                                                {kpi.linkedTaskId && (
-                                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center">
-                                                        <span className="material-icons text-[12px] mr-1">task</span>
-                                                        Công việc liên kết
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </td>
-
-                                        <td className="px-6 py-4">
-                                            <div className="space-y-1">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-bold text-indigo-600">{kpi.progress}%</span>
-                                                </div>
-                                                <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden">
-                                                    <div className={`h-full ${getProgressColor(kpi.progress)}`} style={{ width: `${kpi.progress}%` }}></div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
-                                                {kpi.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center justify-end space-x-2">
-                                                <button
-                                                    onClick={() => {
-                                                        const newVal = prompt('Nhập tiến độ mới (%)', kpi.progress.toString());
-                                                        if (newVal !== null) {
-                                                            const progress = parseInt(newVal);
-                                                            if (!isNaN(progress)) handleUpdateProgress(kpi.id, progress);
-                                                        }
-                                                    }}
-                                                    className="text-indigo-600 text-sm font-bold hover:underline"
-                                                >
-                                                    Cập nhật
-                                                </button>
-                                                <button
-                                                    onClick={() => handleMarkAsCompleted(kpi)}
-                                                    className="text-emerald-600 text-sm font-bold hover:underline"
-                                                    title="Đánh dấu hoàn thành"
-                                                >
-                                                    Hoàn thành
-                                                </button>
-                                                {isManager && (
-                                                    <>
-                                                        <button onClick={() => openEditModal(kpi)} className="text-slate-600 text-sm font-bold hover:underline">Sửa</button>
+                                {kpis
+                                    .filter(k => {
+                                        if (filterPriority === 'ALL') return true;
+                                        const weight = (k as any).weight || 1;
+                                        if (filterPriority === 'HIGH') return weight >= 7;
+                                        if (filterPriority === 'MEDIUM') return weight >= 4 && weight < 7;
+                                        if (filterPriority === 'LOW') return weight < 4;
+                                        return true;
+                                    })
+                                    .map(kpi => {
+                                        const timeRem = getTimeRemaining(kpi.endDate);
+                                        const prio = getPriorityLabel((kpi as any).weight || 1);
+                                        return (
+                                            <tr key={kpi.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center space-x-3">
+                                                        <img
+                                                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${kpi.assignedToName}`}
+                                                            className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
+                                                            alt="avatar"
+                                                        />
+                                                        <div>
+                                                            <p className="text-sm font-bold text-slate-800">{kpi.assignedToName}</p>
+                                                            <p className="text-[10px] font-black text-indigo-500 uppercase mt-0.5 px-1.5 py-0.5 bg-indigo-50 rounded-md inline-block">
+                                                                Phòng: {kpi.assignedToDepartment || kpi.department || '—'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div>
+                                                        <div className="flex items-center space-x-2 mb-1">
+                                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${prio.color}`}>
+                                                                {prio.label}
+                                                            </span>
+                                                            <p className="text-sm font-bold text-slate-800">{kpi.title}</p>
+                                                        </div>
+                                                        {kpi.linkedOKRTitle && (
+                                                            <p className="text-[10px] text-indigo-600 mt-1 font-medium bg-indigo-50/50 px-2 py-1 rounded border border-indigo-100/50 inline-block">
+                                                                🎯 {kpi.linkedOKRTitle} {kpi.linkedKRTitle ? `> ${kpi.linkedKRTitle}` : ''}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-sm font-bold text-indigo-600">{kpi.progress}%</span>
+                                                        </div>
+                                                        <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div className={`h-full ${getProgressColor(kpi.progress)}`} style={{ width: `${kpi.progress}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {kpi.endDate ? (
+                                                        <div className="flex flex-col">
+                                                            <span className="text-xs font-bold text-slate-600">{new Date(kpi.endDate).toLocaleDateString('vi-VN')}</span>
+                                                            {timeRem && <span className={`text-[10px] ${timeRem.color}`}>{timeRem.text}</span>}
+                                                        </div>
+                                                    ) : <span className="text-xs text-slate-400">—</span>}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
+                                                        {kpi.status === 'ACTIVE' ? 'Đang thực hiện' : kpi.status === 'COMPLETED' ? 'Hoàn thành' : kpi.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center justify-end space-x-2">
+                                                        <button onClick={() => openEditModal(kpi)} className="p-1 px-2 bg-indigo-50 text-indigo-600 rounded text-[10px] font-bold hover:bg-indigo-100 transition-colors uppercase">Cập nhật</button>
                                                         <button
-                                                            onClick={() => handleDelete(kpi.id)}
-                                                            disabled={deletingId === kpi.id}
-                                                            className="text-rose-600 text-sm font-bold hover:underline"
+                                                            onClick={() => handleMarkAsCompleted(kpi)}
+                                                            className="p-1 px-2 bg-emerald-50 text-emerald-600 rounded text-[10px] font-bold hover:bg-emerald-100 transition-colors uppercase"
+                                                            title="Đánh dấu hoàn thành"
                                                         >
-                                                            {deletingId === kpi.id ? '...' : 'Xóa'}
+                                                            Xong
                                                         </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                                        {isManager && (
+                                                            <button
+                                                                onClick={() => handleDelete(kpi.id)}
+                                                                disabled={deletingId === kpi.id}
+                                                                className="p-1 px-2 bg-rose-50 text-rose-600 rounded text-[10px] font-bold hover:bg-rose-100 transition-colors uppercase"
+                                                            >
+                                                                {deletingId === kpi.id ? '...' : 'Xóa'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                             </tbody>
                         </table>
                     )}
                 </div>
             )}
 
-            {showModal && isManager && (
+            {showModal && (
                 <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm">
                     <div
                         onClick={(e) => e.stopPropagation()}
@@ -447,7 +410,7 @@ export const PersonalKPIs: React.FC = () => {
                             <div className="flex justify-between items-center">
                                 <div>
                                     <h3 className="text-2xl font-black text-slate-800 tracking-tight">
-                                        {editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI Mới'}
+                                        {editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI Mói'}
                                     </h3>
                                     <p className="text-sm text-slate-400 font-medium">Thiết lập chỉ số quan trọng cho nhân sự</p>
                                 </div>
@@ -484,13 +447,14 @@ export const PersonalKPIs: React.FC = () => {
                                         onChange={e => handleTaskChange(e.target.value)}
                                     >
                                         <option value="">-- Lấy thông tin từ công việc --</option>
-                                        {tasks.filter(t => form.assignedTo ? t.assigneeId === form.assignedTo : true).map(task => (
-                                            <option key={task.id} value={task.id}>
-                                                {task.title}
-                                            </option>
-                                        ))}
+                                        {tasks
+                                            .filter(t => (form.assignedTo ? t.assigneeId === form.assignedTo : true) && (!kpis.some(k => k.linkedTaskId === t.id) || t.id === editingKPI?.linkedTaskId))
+                                            .map(task => (
+                                                <option key={task.id} value={task.id}>
+                                                    {task.title}
+                                                </option>
+                                            ))}
                                     </select>
-                                    <p className="text-[9px] text-indigo-400 font-bold">* Tự động điền thông tin Objective và KR liên kết từ công việc.</p>
                                 </div>
 
                                 <div>
@@ -516,20 +480,27 @@ export const PersonalKPIs: React.FC = () => {
                                     />
                                 </div>
 
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Trọng số ưu tiên (1-10)</label>
-                                        <span className="px-3 py-1 bg-indigo-600 text-white rounded-full text-xs font-black">{(form as any).weight || 1}</span>
+                                <div className="space-y-3">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Đánh giá mức độ ưu tiên</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {[
+                                            { val: 1, label: 'Thấp (Low)', color: 'border-slate-200 text-slate-500' },
+                                            { val: 5, label: 'Trung Bình', color: 'border-amber-200 text-amber-600' },
+                                            { val: 9, label: 'Cao (High)', color: 'border-rose-200 text-rose-600' }
+                                        ].map(p => (
+                                            <button
+                                                key={p.val}
+                                                type="button"
+                                                onClick={() => setForm({ ...form, weight: p.val })}
+                                                className={`p-3 rounded-2xl border-2 text-[10px] font-black uppercase transition-all ${((form as any).weight || 1) === p.val
+                                                    ? p.color.replace('border-', 'bg-').replace('text-', 'text-white border-')
+                                                    : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'
+                                                    }`}
+                                            >
+                                                {p.label}
+                                            </button>
+                                        ))}
                                     </div>
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="10"
-                                        step="1"
-                                        className="w-full h-2 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600"
-                                        value={(form as any).weight || 1}
-                                        onChange={e => setForm({ ...form, weight: parseInt(e.target.value) || 1 } as any)}
-                                    />
                                 </div>
 
                                 <div>

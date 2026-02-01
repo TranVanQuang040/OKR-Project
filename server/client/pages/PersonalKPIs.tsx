@@ -1,30 +1,33 @@
+
 import React, { useEffect, useState } from 'react';
 import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../services/kpiService';
 import { getOKRs, getMyOKRsByUser } from '../services/okrService';
 import { userService } from '../services/userService';
 import { useAuth } from '../context/AuthContext';
-import { KPI, Objective, User } from '../types';
+import { KPI, Objective, User, Task } from '../types';
+
+import { dataService } from '../services/dataService';
 
 export const PersonalKPIs: React.FC = () => {
     const { user, selectedPeriod } = useAuth();
     const [kpis, setKpis] = useState<KPI[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [okrs, setOkrs] = useState<Objective[]>([]);
-    const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
 
     const [form, setForm] = useState({
         title: '',
         description: '',
-        targetValue: 0,
-        unit: '',
         assignedTo: '',
-        linkedOKRId: '',
-        endDate: ''
+        linkedTaskId: '',
+        endDate: '',
+        weight: 1
     });
 
     const isManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -32,42 +35,23 @@ export const PersonalKPIs: React.FC = () => {
     useEffect(() => {
         loadKPIs();
         loadOKRs();
+        loadTasks();
         if (isManager) loadUsers();
     }, [selectedPeriod, user]);
 
-    useEffect(() => {
-        if (form.assignedTo && isManager) {
-            loadPersonalOKRs(form.assignedTo);
-        } else {
-            setPersonalOkrs([]);
-        }
-    }, [form.assignedTo]);
-
-    const loadPersonalOKRs = async (userId: string) => {
-        try {
-            const data = await getMyOKRsByUser(userId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
-            setPersonalOkrs(data || []);
-        } catch (err) {
-            console.error('Failed to load personal OKRs', err);
-        }
-    };
-
     const loadKPIs = async () => {
         if (!user?.id) return;
-        
+
         setIsLoading(true);
         try {
             let data;
             if (isManager) {
-                // Managers see all personal KPIs they assigned (assigned by them)
-                // Load all PERSONAL KPIs without department filter since they can assign to different departments
                 data = await getKPIs({
                     type: 'PERSONAL',
                     quarter: selectedPeriod.quarter,
                     year: selectedPeriod.year
                 });
             } else {
-                // Employees see only their own KPIs
                 data = await getKPIs({
                     type: 'PERSONAL',
                     userId: user.id,
@@ -75,7 +59,12 @@ export const PersonalKPIs: React.FC = () => {
                     year: selectedPeriod.year
                 });
             }
-            setKpis(data || []);
+            const sorted = (data || []).sort((a: any, b: any) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return dateB - dateA || String(b.id).localeCompare(String(a.id));
+            });
+            setKpis(sorted);
         } catch (err) {
             console.error('Failed to load KPIs', err);
         } finally {
@@ -92,14 +81,21 @@ export const PersonalKPIs: React.FC = () => {
         }
     };
 
+    const loadTasks = async () => {
+        try {
+            const data = await dataService.getTasks();
+            setTasks(data || []);
+        } catch (err) {
+            console.error('Failed to load tasks', err);
+        }
+    };
+
     const loadUsers = async () => {
         try {
             const data = await userService.getUsers();
             if (user?.role === 'ADMIN') {
-                // Admin thấy tất cả nhân viên và manager
                 setUsers(data.filter((u: User) => u.id !== user.id));
             } else if (user?.role === 'MANAGER') {
-                // Manager lọc theo phòng ban của họ
                 const filtered = data.filter((u: User) => u.department === user?.department && u.id !== user.id);
                 setUsers(filtered);
             }
@@ -199,8 +195,9 @@ export const PersonalKPIs: React.FC = () => {
             targetValue: kpi.targetValue,
             unit: kpi.unit,
             assignedTo: kpi.assignedTo || '',
-            linkedOKRId: kpi.linkedOKRId || '',
-            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : ''
+            linkedTaskId: kpi.linkedTaskId || '',
+            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : '',
+            weight: (kpi as any).weight || 1
         });
         setShowModal(true);
     };
@@ -208,7 +205,7 @@ export const PersonalKPIs: React.FC = () => {
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', targetValue: 0, unit: '', assignedTo: '', linkedOKRId: '', endDate: '' });
+        setForm({ title: '', description: '', targetValue: 0, unit: '%', assignedTo: '', linkedTaskId: '', endDate: '', weight: 1 });
     };
 
     const getStatusColor = (status: string) => {
@@ -418,28 +415,7 @@ export const PersonalKPIs: React.FC = () => {
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết OKR (tùy chọn)</label>
-                            <select
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.linkedOKRId}
-                                onChange={e => setForm({ ...form, linkedOKRId: e.target.value })}
-                            >
-                                <option value="">-- Không liên kết --</option>
-                                <optgroup label="OKR Phòng ban">
-                                    {okrs.filter(o => o.department === user?.department).map(okr => (
-                                        <option key={okr.id} value={okr.id}>{okr.title}</option>
-                                    ))}
-                                </optgroup>
-                                {personalOkrs.length > 0 && (
-                                    <optgroup label="OKR Cá nhân của nhân viên">
-                                        {personalOkrs.map(okr => (
-                                            <option key={okr.id || okr._id} value={okr.id || okr._id}>{okr.title}</option>
-                                        ))}
-                                    </optgroup>
-                                )}
-                            </select>
-                        </div>
+
 
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hạn hoàn thành</label>

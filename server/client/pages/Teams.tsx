@@ -12,6 +12,8 @@ export const Teams: React.FC = () => {
   const [departments, setDepartments] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showEditTaskModal, setShowEditTaskModal] = useState(false);
   const [managingDeptId, setManagingDeptId] = useState<string | null>(null);
   const [managingDeptData, setManagingDeptData] = useState<any>(null);
   const [form, setForm] = useState({ name: '', description: '' });
@@ -21,8 +23,25 @@ export const Teams: React.FC = () => {
   const [allKpis, setAllKpis] = useState<any[]>([]);
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
+  
+  const normalizeTask = (task: any) => {
+    if (!task) return task;
+    if (task._id && !task.id) task.id = task._id;
+    if (!task.assigneeId) {
+      if (task.assignee && typeof task.assignee === 'string') task.assigneeId = task.assignee;
+      else if (task.assignee && typeof task.assignee === 'object') task.assigneeId = task.assignee.id || task.assignee._id;
+    }
+    return task;
+  };
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [assigningKR, setAssigningKR] = useState<any>(null);
+  const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  const [assignTaskTitle, setAssignTaskTitle] = useState('');
+  const [editingTask, setEditingTask] = useState<any>(null);
+  const [editTaskForm, setEditTaskForm] = useState<any>({ title: '', description: '' });
+  const [isEditingTask, setIsEditingTask] = useState(false);
+ 
 
   useEffect(() => {
     if (currentUser) {
@@ -42,7 +61,8 @@ export const Teams: React.FC = () => {
       setUsers(allUsers);
       setAllOkrs(okrs);
       setAllKpis(kpis);
-      setAllTasks(tasks);
+      const normTasks = (tasks || []).map(normalizeTask);
+      setAllTasks(normTasks);
       
       // Filter departments based on user role
       let filteredDepts = depts;
@@ -53,7 +73,7 @@ export const Teams: React.FC = () => {
       const adapted = filteredDepts.map((d: any) => {
         const deptUsers = allUsers.filter((u: any) => u.department === d.name);
         const deptOkrs = okrs.filter((o: any) => o.department === d.name);
-        const deptTasks = tasks.filter((t: any) => deptUsers.some((u: any) => u.id === t.assigneeId));
+        const deptTasks = (normTasks || []).filter((t: any) => deptUsers.some((u: any) => u.id === t.assigneeId));
         const deptTasksDone = deptTasks.filter((t: any) => t.status === 'DONE').length;
         const progress = deptTasks.length > 0 ? Math.round((deptTasksDone / deptTasks.length) * 100) : 0;
         
@@ -199,6 +219,127 @@ export const Teams: React.FC = () => {
       alert(err?.message || 'Không thể xóa phòng ban');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleAssignKRTask = async () => {
+    if (!selectedMember || !assignTaskTitle.trim()) {
+      alert('Vui lòng chọn thành viên và nhập tiêu đề công việc');
+      return;
+    }
+
+    try {
+      const assignee = users.find(u => u.id === selectedMember || u._id === selectedMember);
+      
+      // Tạo task mới liên kết với Key Result
+      const newTask = {
+        title: assignTaskTitle,
+        description: `Công việc cho Key Result: ${assigningKR.title}`,
+        assigneeId: selectedMember,
+        status: 'TODO',
+        okrId: assigningKR.okrId,
+        krId: assigningKR.krId,
+        krTitle: assigningKR.title,
+        dueDate: assigningKR.endDate
+      };
+
+      // Gọi API tạo task
+      const createdTask = await taskService.createTask(newTask);
+      
+      setStatusMessage('✓ Gán công việc thành công');
+      setTimeout(() => setStatusMessage(''), 3000);
+      
+      const createdNormalized = normalizeTask(createdTask);
+      // Cập nhật managingDeptData real-time
+      if (managingDeptData) {
+        setManagingDeptData({
+          ...managingDeptData,
+          tasks: [...managingDeptData.tasks, createdNormalized]
+        });
+        // Cập nhật allTasks
+        setAllTasks([...allTasks, createdNormalized]);
+      }
+      
+      // Reset form
+      setShowAssignModal(false);
+      setAssigningKR(null);
+      setSelectedMember(null);
+      setAssignTaskTitle('');
+    } catch (err: any) {
+      alert(err?.message || 'Không thể gán công việc');
+    }
+  };
+
+  const handleEditTask = (task: any) => {
+    setEditingTask(task);
+    setEditTaskForm({
+      title: task.title || task.name,
+      description: task.description || '',
+      assigneeId: task.assigneeId || task.assignee || ''
+    });
+    setShowEditTaskModal(true);
+  };
+
+  const handleUpdateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTaskForm.title.trim()) {
+      alert('Vui lòng nhập tiêu đề công việc');
+      return;
+    }
+
+    setIsEditingTask(true);
+    try {
+      // include assigneeName for backend convenience
+      const assignee = users.find((u: any) => u.id === editTaskForm.assigneeId || u._id === editTaskForm.assigneeId);
+      const payload = { ...editTaskForm, assigneeName: assignee?.name };
+      await taskService.updateTask(editingTask.id || editingTask._id, payload);
+      setStatusMessage('✓ Cập nhật công việc thành công');
+      setTimeout(() => setStatusMessage(''), 3000);
+      
+      // Cập nhật managingDeptData real-time
+      if (managingDeptData) {
+        const updatedTasks = managingDeptData.tasks.map((t: any) => {
+          if (t.id === editingTask.id || t._id === editingTask._id) {
+            return normalizeTask({ ...t, ...payload });
+          }
+          return t;
+        });
+        setManagingDeptData({
+          ...managingDeptData,
+          tasks: updatedTasks
+        });
+        // Cập nhật allTasks
+        setAllTasks(allTasks.map((t: any) => (t.id === editingTask.id || t._id === editingTask._id) ? normalizeTask({ ...t, ...payload }) : t));
+      }
+      
+      setShowEditTaskModal(false);
+      setEditingTask(null);
+    } catch (err: any) {
+      alert(err?.message || 'Không thể cập nhật công việc');
+    } finally {
+      setIsEditingTask(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Bạn có chắc muốn xóa công việc này?')) return;
+    
+    try {
+      await taskService.deleteTask(taskId);
+      setStatusMessage('✓ Xóa công việc thành công');
+      setTimeout(() => setStatusMessage(''), 3000);
+      
+      // Cập nhật managingDeptData real-time
+      if (managingDeptData) {
+        setManagingDeptData({
+          ...managingDeptData,
+          tasks: managingDeptData.tasks.filter((t: any) => t.id !== taskId && t._id !== taskId)
+        });
+        // Cập nhật allTasks
+        setAllTasks(allTasks.filter((t: any) => t.id !== taskId && t._id !== taskId));
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Không thể xóa công việc');
     }
   };
 
@@ -433,9 +574,19 @@ export const Teams: React.FC = () => {
                         <div key={idx} className="p-4 hover:bg-slate-100">
                           <div className="flex justify-between items-start mb-2">
                             <p className="font-bold text-slate-800">{task.name || task.title}</p>
-                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${statusColor}`}>
-                              {task.status === 'DONE' ? '✓ Hoàn thành' : task.status === 'IN_PROGRESS' ? '⟳ Đang làm' : '◯ Chưa bắt đầu'}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${statusColor}`}>
+                                {task.status === 'DONE' ? '✓ Hoàn thành' : task.status === 'IN_PROGRESS' ? '⟳ Đang làm' : '◯ Chưa bắt đầu'}
+                              </span>
+                              {currentUser?.role !== 'EMPLOYEE' && (
+                                <button 
+                                  onClick={() => handleDeleteTask(task.id || task._id)}
+                                  className="text-rose-600 text-xs font-bold hover:underline"
+                                >
+                                  Xóa
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-sm text-slate-600">{task.description}</p>
                           <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
@@ -459,16 +610,130 @@ export const Teams: React.FC = () => {
                     <div className="p-6 text-center text-slate-500">Chưa có OKR nào</div>
                   ) : (
                     <div className="divide-y divide-slate-200">
-                      {managingDeptData.okrs.map((okr: any, idx: number) => (
-                        <div key={idx} className="p-4 hover:bg-slate-100">
-                          <p className="font-bold text-slate-800">{okr.name || okr.title}</p>
-                          <p className="text-sm text-slate-600 mt-1">{okr.description}</p>
-                          <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
-                            {okr.assignee && <span>👤 {users.find((u: any) => u.id === okr.assignee || u._id === okr.assignee)?.name || 'Unknown'}</span>}
-                            {okr.department && <span>🏢 {okr.department}</span>}
+                      {managingDeptData.okrs.map((okr: any, idx: number) => {
+                        const daysLeft = okr.endDate ? Math.ceil((new Date(okr.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
+                        const isOverdue = daysLeft !== null && daysLeft < 0;
+                        const ownerUser = users.find((u: any) => u.id === okr.ownerId || u._id === okr.ownerId);
+                        
+                        return (
+                          <div key={idx} className="p-4 hover:bg-slate-100">
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex-1">
+                                <p className="font-bold text-slate-800">{okr.title || okr.name}</p>
+                                <p className="text-sm text-slate-600 mt-1">{okr.description}</p>
+                              </div>
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap ml-2 ${
+                                okr.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {okr.status || 'Draft'}
+                              </span>
+                            </div>
+
+                            {/* Tiến độ OKR */}
+                            <div className="mb-3">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-xs font-bold text-slate-500">Tiến độ</span>
+                                <span className="text-sm font-bold text-slate-700">{okr.progress || 0}%</span>
+                              </div>
+                              <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-blue-500" 
+                                  style={{ width: `${Math.min(okr.progress || 0, 100)}%` }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            {/* Key Results */}
+                            {okr.keyResults && okr.keyResults.length > 0 && (
+                              <div className="mb-3 bg-white rounded p-3 border border-slate-100">
+                                <p className="text-xs font-bold text-slate-600 mb-2">Key Results:</p>
+                                <div className="space-y-2">
+                                  {okr.keyResults.map((kr: any, krIdx: number) => {
+                                    console.debug('KR match check', {
+                                      krId: String(kr._id || kr.id || ''),
+                                      tasksSample: (managingDeptData.tasks || []).slice(0,10).map((t: any) => ({ id: t.id || t._id, krId: t.krId, linkedKRId: t.linkedKRId, kr: t.kr }))
+                                    });
+
+                                    const linkedTask = (managingDeptData.tasks || []).find((t: any) => {
+                                      const krId = String(kr._id || kr.id || '');
+                                      const linkedId = String(t.krId || t.linkedKRId || t.kr || (t.krId && (t.krId.id || t.krId._id)) || '');
+                                      return krId && linkedId && krId === linkedId;
+                                    });
+                                    const taskAssignee = linkedTask ? users.find((u: any) => u.id === linkedTask.assigneeId || u._id === linkedTask.assigneeId) : null;
+                                    
+                                    return (
+                                    <div key={krIdx} className="border-l-2 border-indigo-300 pl-2">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <p className="text-xs font-medium text-slate-700">{kr.title}</p>
+                                            {linkedTask && taskAssignee && (
+                                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded font-bold">
+                                                👤 {taskAssignee.name}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex justify-between items-center mt-1">
+                                            <span className="text-xs text-slate-500">
+                                              {kr.currentValue || 0}/{kr.targetValue || 100} {kr.unit || '%'}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-600">{kr.progress || 0}%</span>
+                                          </div>
+                                          <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden mt-1">
+                                            <div 
+                                              className="h-full bg-indigo-500" 
+                                              style={{ width: `${Math.min(kr.progress || 0, 100)}%` }}
+                                            ></div>
+                                          </div>
+                                        </div>
+                                        {currentUser?.role === 'ADMIN' && !linkedTask && (
+                                          <button
+                                            onClick={() => {
+                                              setAssigningKR({
+                                                ...kr,
+                                                okrId: okr._id,
+                                                krId: kr._id,
+                                                endDate: okr.endDate,
+                                                okrTitle: okr.title
+                                              });
+                                              setShowAssignModal(true);
+                                            }}
+                                            className="ml-2 px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 font-bold whitespace-nowrap"
+                                          >
+                                            Gán công việc
+                                          </button>
+                                        )}
+                                        {currentUser?.role === 'ADMIN' && linkedTask && (
+                                          <button
+                                            onClick={() => handleEditTask(linkedTask)}
+                                            className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 font-bold whitespace-nowrap"
+                                          >
+                                            Sửa
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                              
+
+                            <div className="flex items-center gap-4 mt-3 text-xs text-slate-500 flex-wrap">
+                              {ownerUser && <span>👤 {ownerUser.name}</span>}
+                              {okr.department && <span>🏢 {okr.department}</span>}
+                              {okr.quarter && <span>📋 Q{okr.quarter}</span>}
+                              {daysLeft !== null && (
+                                <span className={isOverdue ? 'text-rose-600 font-bold' : ''}>
+                                  ⏰ {isOverdue ? `Quá hạn ${Math.abs(daysLeft)} ngày` : `Còn ${daysLeft} ngày`}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -484,17 +749,66 @@ export const Teams: React.FC = () => {
                     <div className="p-6 text-center text-slate-500">Chưa có KPI nào</div>
                   ) : (
                     <div className="divide-y divide-slate-200">
-                      {managingDeptData.kpis.map((kpi: any, idx: number) => (
-                        <div key={idx} className="p-4 hover:bg-slate-100">
-                          <p className="font-bold text-slate-800">{kpi.name || kpi.title}</p>
-                          <p className="text-sm text-slate-600 mt-1">{kpi.description}</p>
-                          <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
-                            {currentUser?.role !== 'EMPLOYEE' && kpi.owner && <span>👤 {users.find((u: any) => u.id === kpi.owner || u._id === kpi.owner)?.name || 'Unknown'}</span>}
-                            {currentUser?.role !== 'EMPLOYEE' && kpi.department && <span>🏢 {kpi.department}</span>}
-                            {kpi.target && <span>🎯 Mục tiêu: {kpi.target}</span>}
+                      {managingDeptData.kpis.map((kpi: any, idx: number) => {
+                        const daysLeft = kpi.endDate ? Math.ceil((new Date(kpi.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
+                        const isOverdue = daysLeft !== null && daysLeft < 0;
+                        const assignedUser = users.find((u: any) => u.id === kpi.assignedTo || u._id === kpi.assignedTo);
+                        
+                        return (
+                          <div key={idx} className="p-4 hover:bg-slate-100">
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex-1">
+                                <p className="font-bold text-slate-800">{kpi.title || kpi.name}</p>
+                                <p className="text-sm text-slate-600 mt-1">{kpi.description}</p>
+                              </div>
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap ml-2 ${
+                                kpi.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : kpi.status === 'OVERDUE' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {kpi.status || 'Active'}
+                              </span>
+                            </div>
+
+                            {/* Tiến độ KPI */}
+                            <div className="mb-3">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-xs font-bold text-slate-500">Tiến độ</span>
+                                <span className="text-sm font-bold text-slate-700">{kpi.progress || 0}%</span>
+                              </div>
+                              <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full ${kpi.status === 'OVERDUE' ? 'bg-rose-500' : 'bg-emerald-500'}`} 
+                                  style={{ width: `${Math.min(kpi.progress || 0, 100)}%` }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            {/* Mục tiêu và giá trị hiện tại */}
+                            {/* <div className="bg-white rounded p-2 mb-3 border border-slate-100">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-600">
+                                  Giá trị: <span className="font-bold text-slate-800">{kpi.currentValue || 0} / {kpi.targetValue || 100} {kpi.unit || '%'}</span>
+                                </span>
+                              </div>
+                            </div> */}
+
+                            <div className="flex items-center gap-4 mt-3 text-xs text-slate-500 flex-wrap">
+                              {currentUser?.role !== 'EMPLOYEE' && assignedUser && <span>👤 {assignedUser.name}</span>}
+                              {currentUser?.role !== 'EMPLOYEE' && kpi.department && <span>🏢 {kpi.department}</span>}
+                              {kpi.quarter && <span>📋 Q{kpi.quarter}</span>}
+                              {daysLeft !== null && (
+                                <span className={isOverdue ? 'text-rose-600 font-bold' : ''}>
+                                  📅 {kpi.endDate ? new Date(kpi.endDate).toLocaleDateString('vi-VN') : 'Không có hạn'}
+                                </span>
+                              )}
+                              {daysLeft !== null && (
+                                <span className={isOverdue ? 'text-rose-600 font-bold' : ''}>
+                                  ⏰ {isOverdue ? `Quá hạn ${Math.abs(daysLeft)} ngày` : `Còn ${daysLeft} ngày`}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -507,6 +821,124 @@ export const Teams: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal Gán công việc Key Result */}
+      {showAssignModal && assigningKR && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <form onSubmit={(e) => { e.preventDefault(); handleAssignKRTask(); }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in duration-200">
+            <h3 className="text-lg font-bold">Gán công việc cho Key Result</h3>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-xs text-slate-600">
+                <span className="font-bold">OKR:</span> {assigningKR.okrTitle}
+              </p>
+              <p className="text-xs text-slate-600 mt-1">
+                <span className="font-bold">Key Result:</span> {assigningKR.title}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tiêu đề công việc</label>
+              <input 
+                type="text" 
+                required
+                placeholder="Nhập tiêu đề công việc"
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={assignTaskTitle}
+                onChange={e => setAssignTaskTitle(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Gán cho thành viên</label>
+              <select 
+                required
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={selectedMember || ''}
+                onChange={e => setSelectedMember(e.target.value)}
+              >
+                <option value="">-- Chọn thành viên --</option>
+                {managingDeptData?.members?.map((member: any) => (
+                  <option key={member.id || member._id} value={member.id || member._id}>
+                    {member.name} ({member.role === 'MANAGER' ? 'Quản lý' : 'Nhân viên'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả công việc (tùy chọn)</label>
+              <textarea 
+                rows={2}
+                placeholder="Mô tả chi tiết công việc..."
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-4">
+              <button type="button" onClick={() => { setShowAssignModal(false); setAssigningKR(null); setSelectedMember(null); setAssignTaskTitle(''); }} className="px-4 py-2 text-slate-600 font-bold text-sm">Hủy</button>
+              <button type="submit" className="px-6 py-2 rounded-lg font-bold text-sm bg-indigo-600 text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700">
+                Gán công việc
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal Sửa công việc */}
+      {showEditTaskModal && editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <form onSubmit={handleUpdateTask} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in duration-200">
+            <h3 className="text-lg font-bold">Sửa công việc</h3>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tiêu đề công việc</label>
+              <input 
+                type="text" 
+                required
+                placeholder="Nhập tiêu đề công việc"
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={editTaskForm.title}
+                onChange={e => setEditTaskForm({...editTaskForm, title: e.target.value})}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả công việc</label>
+              <textarea 
+                rows={3}
+                placeholder="Mô tả chi tiết công việc..."
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={editTaskForm.description}
+                onChange={e => setEditTaskForm({...editTaskForm, description: e.target.value})}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Gán cho thành viên</label>
+              <select
+                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={editTaskForm.assigneeId || ''}
+                onChange={e => setEditTaskForm({...editTaskForm, assigneeId: e.target.value})}
+              >
+                <option value="">-- Chọn thành viên --</option>
+                {managingDeptData?.members?.map((member: any) => (
+                  <option key={member.id || member._id} value={member.id || member._id}>
+                    {member.name} ({member.role === 'MANAGER' ? 'Quản lý' : 'Nhân viên'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-4">
+              <button type="button" onClick={() => { setShowEditTaskModal(false); setEditingTask(null); }} className="px-4 py-2 text-slate-600 font-bold text-sm">Hủy</button>
+              <button type="submit" disabled={isEditingTask} className={`px-6 py-2 rounded-lg font-bold text-sm ${isEditingTask ? 'bg-slate-300 text-slate-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                {isEditingTask ? 'Đang lưu…' : 'Lưu thay đổi'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

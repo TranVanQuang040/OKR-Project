@@ -45,7 +45,7 @@ export interface Objective {
   id: string;
   title: string;
   description: string;
-  type?: 'COMPANY' | 'DEPARTMENT' | 'PERSONAL';
+  type?: 'COMPANY' | 'DEPARTMENT' | 'TEAM' | 'PERSONAL';
   parentId?: string;
   priority?: 'HIGH' | 'MEDIUM' | 'LOW';
   tags?: string[];
@@ -59,6 +59,7 @@ export interface Objective {
   keyResults: KeyResult[];
   startDate?: string;
   endDate?: string;
+  workgroupId?: string;
   createdAt: string;
 }
 
@@ -66,7 +67,7 @@ export interface MyObjective {
   id: string;
   title: string;
   description?: string;
-  type?: 'COMPANY' | 'DEPARTMENT' | 'PERSONAL';
+  type?: 'COMPANY' | 'DEPARTMENT' | 'TEAM' | 'PERSONAL';
   parentId?: string;
   priority?: 'HIGH' | 'MEDIUM' | 'LOW';
   tags?: string[];
@@ -79,6 +80,7 @@ export interface MyObjective {
   keyResults: KeyResult[];
   startDate?: string;
   endDate?: string;
+  workgroupId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -95,7 +97,7 @@ export interface Period {
   year: number;
 }
 
-export type KPIType = 'DEPARTMENT' | 'PERSONAL';
+export type KPIType = 'DEPARTMENT' | 'TEAM' | 'PERSONAL';
 export type KPIStatus = 'ACTIVE' | 'COMPLETED' | 'OVERDUE';
 
 export interface KPI {
@@ -110,6 +112,7 @@ export interface KPI {
   progress: number;
   status: KPIStatus;
   department: string;
+  workgroupId?: string;
   assignedTo?: string;
   assignedToName?: string;
   assignedToDepartment?: string;

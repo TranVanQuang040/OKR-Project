@@ -77,8 +77,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <NavLink to="/" icon="dashboard">Bảng điều khiển</NavLink>
           <NavLink to="/okrs" icon="track_changes">Mục tiêu OKR</NavLink>
           <NavLink to="/myOkrs" icon="track_changes">Danh Sách OKR</NavLink>
-          <NavLink to="/kpis/department" icon="bar_chart">KPI Phòng ban</NavLink>
-          <NavLink to="/kpis/personal" icon="person_pin">KPI Cá nhân</NavLink>
+          <NavLink to="/kpis/department" icon="bar_chart">Quản lý KPI </NavLink>
+          <NavLink to="/kpis/personal" icon="person_pin">Danh sách KPI </NavLink>
           <NavLink to="/workgroups" icon="groups">Nhóm</NavLink>
 
           {user?.role !== 'EMPLOYEE' && <NavLink to="/users" icon="group">Thành viên</NavLink>}

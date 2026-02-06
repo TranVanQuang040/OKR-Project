@@ -14,7 +14,9 @@ export const OKRs: React.FC = () => {
   const [editingOKRId, setEditingOKRId] = useState<string | null>(null);
   const [newObjective, setNewObjective] = useState('');
   const [description, setDescription] = useState('');
-  const [okrType, setOkrType] = useState<'COMPANY' | 'DEPARTMENT' | 'PERSONAL'>('DEPARTMENT');
+  const [okrType, setOkrType] = useState<'COMPANY' | 'DEPARTMENT' | 'TEAM' | 'PERSONAL'>('DEPARTMENT');
+  const [workgroupId, setWorkgroupId] = useState('');
+  const [workgroups, setWorkgroups] = useState<any[]>([]);
   const [priority, setPriority] = useState<'HIGH' | 'MEDIUM' | 'LOW'>('MEDIUM');
   const [parentId, setParentId] = useState('');
   const [tags, setTags] = useState('');
@@ -23,7 +25,7 @@ export const OKRs: React.FC = () => {
   const [pendingKRs, setPendingKRs] = useState<any[]>([]);
   const [manualKR, setManualKR] = useState({ title: '', weight: 1, unit: '%', targetValue: 100, source: 'MANUAL', confidenceScore: 10 });
   const [showMoreOptions, setShowMoreOptions] = useState(false);
-  const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'PENDING'>('ALL');
+  const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'TEAM' | 'PENDING'>('ALL');
   const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -97,11 +99,23 @@ export const OKRs: React.FC = () => {
   useEffect(() => {
     loadOKRs();
     loadDepartments();
+    loadWorkgroups();
   }, [selectedPeriod]);
 
   useEffect(() => {
     loadDepartments();
+    loadWorkgroups();
   }, []);
+
+  const loadWorkgroups = async () => {
+    try {
+      const { workgroupService } = await import('../services/workgroupService');
+      const data = await workgroupService.getWorkgroups();
+      setWorkgroups(data || []);
+    } catch (err) {
+      console.error('Failed to load workgroups', err);
+    }
+  };
 
   const handleGenerateKRs = async () => {
     if (!newObjective) return;
@@ -156,6 +170,7 @@ export const OKRs: React.FC = () => {
       status: editingOKRId ? undefined : 'PENDING_APPROVAL',
       startDate,
       endDate,
+      workgroupId: okrType === 'TEAM' ? workgroupId : null,
       keyResults: pendingKRs.map(kr => ({
         id: kr.id && !kr.id.startsWith('kr-') ? kr.id : undefined,
         title: kr.title,
@@ -282,6 +297,7 @@ export const OKRs: React.FC = () => {
     };
     setStartDate(formatToDateInput(okr.startDate));
     setEndDate(formatToDateInput(okr.endDate));
+    setWorkgroupId(okr.workgroupId || '');
     setShowModal(true);
     loadDepartments();
   };
@@ -316,6 +332,7 @@ export const OKRs: React.FC = () => {
       filterType === 'ALL' ||
       (filterType === 'PERSONAL' && o.type === 'PERSONAL') ||
       (filterType === 'DEPARTMENT' && o.type === 'DEPARTMENT') ||
+      (filterType === 'TEAM' && o.type === 'TEAM') ||
       (filterType === 'PENDING' && o.status === 'PENDING_APPROVAL')
     ) &&
     (filterPriority === 'ALL' || o.priority === filterPriority)
@@ -328,6 +345,7 @@ export const OKRs: React.FC = () => {
         <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
           <button onClick={() => setFilterType('ALL')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Tất cả</button>
           <button onClick={() => setFilterType('DEPARTMENT')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'DEPARTMENT' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Phòng ban</button>
+          <button onClick={() => setFilterType('TEAM')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Nhóm</button>
           <button onClick={() => setFilterType('PERSONAL')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'PERSONAL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cá nhân</button>
           <button onClick={() => setFilterType('PENDING')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'PENDING' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Chờ duyệt</button>
         </div>
@@ -465,6 +483,7 @@ export const OKRs: React.FC = () => {
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
                   >
                     <option value="DEPARTMENT">Cấp Phòng ban</option>
+                    <option value="TEAM">Cấp Nhóm</option>
                     <option value="PERSONAL">Cấp Cá nhân</option>
                   </select>
                 </div>
@@ -514,6 +533,22 @@ export const OKRs: React.FC = () => {
                     <option value="">-- Chọn phòng ban --</option>
                     {departments.map((d, idx) => (
                       <option key={d._id || d.id || `dept-${idx}`} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {okrType === 'TEAM' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase px-1">Nhóm gán cho</label>
+                  <select
+                    value={workgroupId}
+                    onChange={e => setWorkgroupId(e.target.value)}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white font-medium"
+                  >
+                    <option value="">-- Chọn nhóm --</option>
+                    {workgroups.map((w, idx) => (
+                      <option key={w._id || w.id || `team-${idx}`} value={w._id || w.id}>{w.name}</option>
                     ))}
                   </select>
                 </div>

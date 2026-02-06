@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const KPISchema = new mongoose.Schema({
     title: { type: String, required: true },
     description: { type: String },
-    type: { type: String, enum: ['DEPARTMENT', 'PERSONAL'], required: true },
+    type: { type: String, enum: ['DEPARTMENT', 'TEAM', 'PERSONAL'], required: true },
+    workgroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Workgroup', default: null },
 
     // Metrics
     targetValue: { type: Number, default: 100 },

@@ -1,9 +1,12 @@
 
 import React, { useEffect, useState } from 'react';
+import { KPI, Objective, User } from '../types';
 import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../services/kpiService';
 import { getOKRs, getMyOKRs } from '../services/okrService';
 import { useAuth } from '../context/AuthContext';
-import { KPI, Objective } from '../types';
+import { userService } from '../services/userService';
+import { workgroupService } from '../services/workgroupService';
+import { getDepartments } from '../services/departmentService';
 
 export const DepartmentKPIs: React.FC = () => {
     const { user, selectedPeriod } = useAuth();
@@ -12,17 +15,23 @@ export const DepartmentKPIs: React.FC = () => {
     const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
+    const [users, setUsers] = useState<User[]>([]);
+    const [workgroups, setWorkgroups] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+    const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'TEAM'>('ALL');
 
     const [departments, setDepartments] = useState<any[]>([]);
     const [selectedDept, setSelectedDept] = useState(user?.department || '');
     const [form, setForm] = useState({
         title: '',
         description: '',
+        type: 'DEPARTMENT' as 'DEPARTMENT' | 'TEAM' | 'PERSONAL',
         department: user?.department || '',
+        assignedTo: '',
+        workgroupId: '',
         linkedOKRId: '',
         linkedKRId: '',
         endDate: '',
@@ -30,16 +39,25 @@ export const DepartmentKPIs: React.FC = () => {
     });
 
     useEffect(() => {
-        if (user?.role === 'ADMIN') {
-            fetchDepts();
-        }
-    }, []);
-
-    useEffect(() => {
         loadKPIs();
         loadOKRs();
         loadPersonalOKRs();
+        loadUsersAndWorkgroups();
     }, [selectedPeriod, user, selectedDept]);
+
+    const loadUsersAndWorkgroups = async () => {
+        try {
+            const [usersData, groupsData] = await Promise.all([
+                userService.getUsers(),
+                workgroupService.getWorkgroups(),
+                fetchDepts()
+            ]);
+            setUsers(usersData);
+            setWorkgroups(groupsData);
+        } catch (err) {
+            console.error('Failed to load users or workgroups', err);
+        }
+    };
 
     const loadPersonalOKRs = async () => {
         try {
@@ -51,24 +69,30 @@ export const DepartmentKPIs: React.FC = () => {
     };
 
     const fetchDepts = async () => {
-        const { getDepartments } = await import('../services/departmentService');
-        const data = await getDepartments();
-        setDepartments(data);
-        if (!selectedDept && data.length > 0) setSelectedDept(data[0].name);
+        try {
+            const data = await getDepartments();
+            setDepartments(data);
+            if (!selectedDept && data.length > 0) setSelectedDept(data[0].name);
+        } catch (err) {
+            console.error('Failed to fetch departments', err);
+        }
     };
 
     const loadKPIs = async () => {
         const deptToFetch = user?.role === 'ADMIN' ? selectedDept : user?.department;
         if (user?.role !== 'ADMIN' && !deptToFetch) return;
 
-        setIsLoading(true);
         try {
-            const data = await getKPIs({
-                type: 'DEPARTMENT',
-                department: deptToFetch,
+            const params: any = {
                 quarter: selectedPeriod.quarter,
                 year: selectedPeriod.year
-            });
+            };
+            if (user?.role !== 'ADMIN') {
+                params.department = user?.department;
+            } else if (selectedDept) {
+                params.department = selectedDept;
+            }
+            const data = await getKPIs(params);
             const sorted = (data || []).sort((a: any, b: any) => {
                 const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
                 const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -96,10 +120,12 @@ export const DepartmentKPIs: React.FC = () => {
         if (!form.title) return alert('Vui lòng điền đủ thông tin');
 
         try {
-            const payload: Partial<KPI> = {
+            const assignedUser = users.find(u => u.id === form.assignedTo || u._id === form.assignedTo);
+            const payload: any = {
                 ...form,
-                type: 'DEPARTMENT',
-                department: (user?.role === 'ADMIN' ? form.department : user?.department) || '',
+                department: form.type === 'PERSONAL' ? (assignedUser?.department || '') : (form.department || user?.department),
+                assignedToName: assignedUser?.name,
+                assignedToDepartment: assignedUser?.department || '',
                 quarter: selectedPeriod.quarter,
                 year: selectedPeriod.year,
                 currentValue: editingKPI?.currentValue || 0,
@@ -188,11 +214,14 @@ export const DepartmentKPIs: React.FC = () => {
         setForm({
             title: kpi.title,
             description: kpi.description || '',
+            type: kpi.type as any,
             department: kpi.department || '',
+            assignedTo: kpi.assignedTo || '',
+            workgroupId: kpi.workgroupId || '',
             linkedOKRId: kpi.linkedOKRId || '',
             linkedKRId: kpi.linkedKRId || '',
             endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : '',
-            weight: (kpi as any).weight || 1
+            weight: kpi.weight || 1
         });
         setShowModal(true);
     };
@@ -200,7 +229,18 @@ export const DepartmentKPIs: React.FC = () => {
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', department: selectedDept || user?.department || '', linkedOKRId: '', linkedKRId: '', endDate: '', weight: 1 });
+        setForm({
+            title: '',
+            description: '',
+            type: 'DEPARTMENT',
+            department: selectedDept || user?.department || '',
+            assignedTo: '',
+            workgroupId: '',
+            linkedOKRId: '',
+            linkedKRId: '',
+            endDate: '',
+            weight: 1
+        });
     };
 
     const getStatusColor = (status: string) => {
@@ -238,43 +278,77 @@ export const DepartmentKPIs: React.FC = () => {
 
     return (
         <div className="space-y-8">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center space-x-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800">KPI Phòng ban</h2>
-                        <p className="text-slate-500 text-sm">
-                            {user?.role === 'ADMIN' ? 'Quản lý KPI của tất cả phòng ban' : `Quản lý các chỉ số hiệu suất của phòng ban ${user?.department}`}
+                        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Quản lý KPI</h2>
+                        <p className="text-slate-500 text-xs font-medium">
+                            {user?.role === 'ADMIN' ? 'Hệ thống quản trị mục tiêu tập trung' : `Mục tiêu hiệu suất của ${user?.department}`}
                         </p>
                     </div>
                     {user?.role === 'ADMIN' && (
-                        <select
-                            className="p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-bold"
-                            value={selectedDept}
-                            onChange={(e) => setSelectedDept(e.target.value)}
-                        >
-                            <option value="">-- Tất cả phòng ban --</option>
-                            {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                        </select>
+                        <div className="relative">
+                            <select
+                                className="pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-bold text-slate-700 appearance-none cursor-pointer shadow-sm hover:border-indigo-300 transition-colors"
+                                value={selectedDept}
+                                onChange={(e) => setSelectedDept(e.target.value)}
+                            >
+                                <option value="">🏢 Tất cả phòng ban</option>
+                                {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                            </select>
+                            <span className="material-icons absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-sm">expand_more</span>
+                        </div>
                     )}
                 </div>
-                <div className="flex items-center space-x-3">
+
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+                        <button
+                            onClick={() => setFilterType('ALL')}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Tất cả
+                        </button>
+                        <button
+                            onClick={() => setFilterType('TEAM')}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Nhóm
+                        </button>
+                        <button
+                            onClick={() => setFilterType('DEPARTMENT')}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'DEPARTMENT' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Phòng ban
+                        </button>
+                        <button
+                            onClick={() => setFilterType('PERSONAL')}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'PERSONAL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Cá nhân
+                        </button>
+                    </div>
+
+                    <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+
                     <select
                         value={filterPriority}
                         onChange={e => setFilterPriority(e.target.value as any)}
-                        className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                     >
                         <option value="ALL">Mức độ: Tất cả</option>
                         <option value="HIGH">Ưu tiên: Cao</option>
                         <option value="MEDIUM">Ưu tiên: Trung bình</option>
                         <option value="LOW">Ưu tiên: Thấp</option>
                     </select>
+
                     {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
                         <button
-                            onClick={() => { closeModal(); setShowModal(true); setForm(f => ({ ...f, department: selectedDept || user?.department || '' })); }}
-                            className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center space-x-2"
+                            onClick={() => { closeModal(); setShowModal(true); setForm(f => ({ ...f, type: 'DEPARTMENT', department: selectedDept || user?.department || '' })); }}
+                            className="bg-indigo-600 text-white px-5 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center space-x-2 shadow-lg shadow-indigo-100 active:scale-95"
                         >
-                            <span className="material-icons text-lg">add</span>
-                            <span>Thêm KPI</span>
+                            <span className="material-icons text-lg">add_circle</span>
+                            <span>Thiết lập KPI</span>
                         </button>
                     )}
                 </div>
@@ -296,6 +370,10 @@ export const DepartmentKPIs: React.FC = () => {
 
                     {kpis
                         .filter(k => {
+                            // Type filter
+                            if (filterType !== 'ALL' && k.type !== filterType) return false;
+
+                            // Priority/Weight filter
                             if (filterPriority === 'ALL') return true;
                             const weight = (k as any).weight || 1;
                             if (filterPriority === 'HIGH') return weight >= 7;
@@ -316,12 +394,20 @@ export const DepartmentKPIs: React.FC = () => {
                                                         {prio.label}
                                                     </span>
                                                     <span className="text-[8px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-black uppercase">
-                                                        Phòng: {kpi.department}
+                                                        {kpi.type}
                                                     </span>
+                                                    {kpi.type === 'DEPARTMENT' && (
+                                                        <span className="text-[8px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-black uppercase">
+                                                            Phòng: {kpi.department}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <h3 className="text-lg font-bold text-slate-800 mb-1">{kpi.title}</h3>
+                                                <p className="text-[10px] text-slate-400 font-bold mb-2">
+                                                    {kpi.type === 'PERSONAL' ? `Nhân sự: ${kpi.assignedToName}` : (kpi.type === 'TEAM' ? `Nhóm: ${workgroups.find(w => w.id === kpi.workgroupId || w._id === kpi.workgroupId)?.name || 'Team'}` : `Phòng ban: ${kpi.department}`)}
+                                                </p>
                                                 {kpi.description && (
-                                                    <p className="text-xs text-slate-500 mb-2">{kpi.description}</p>
+                                                    <p className="text-xs text-slate-500 mb-2 line-clamp-2">{kpi.description}</p>
                                                 )}
                                             </div>
                                             <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
@@ -396,15 +482,72 @@ export const DepartmentKPIs: React.FC = () => {
                     <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 space-y-6 animate-in fade-in zoom-in duration-200">
                         <div className="flex justify-between items-start">
                             <div>
-                                <h3 className="text-2xl font-black text-slate-800 tracking-tight">{editingKPI ? 'Chỉnh sửa KPI' : 'Tạo KPI mới'}</h3>
-                                <p className="text-sm text-slate-400 font-medium">Thiết lập mục tiêu đo lường cho phòng ban</p>
+                                <h3 className="text-2xl font-black text-slate-800 tracking-tight">{editingKPI ? 'Chỉnh sửa KPI' : 'Cấu hình KPI'}</h3>
+                                <p className="text-sm text-slate-400 font-medium">Thiết lập mục tiêu đo lường hiệu suất</p>
                             </div>
                             <button type="button" onClick={closeModal} className="text-slate-300 hover:text-slate-500 transition-colors">
                                 <span className="material-icons">close</span>
                             </button>
                         </div>
 
-                        {user?.role === 'ADMIN' && (
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Phân loại KPI</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    { id: 'PERSONAL', label: 'Cá nhân' },
+                                    { id: 'TEAM', label: 'Nhóm' },
+                                    { id: 'DEPARTMENT', label: 'Phòng ban' }
+                                ].map(t => (
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => setForm({ ...form, type: t.id as any })}
+                                        className={`p-2 rounded-xl border-2 text-[10px] font-black uppercase transition-all ${form.type === t.id
+                                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                                            : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'
+                                            }`}
+                                    >
+                                        {t.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {form.type === 'PERSONAL' && (
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Nhân sự thực hiện</label>
+                                <select
+                                    required
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                    value={form.assignedTo}
+                                    onChange={e => setForm({ ...form, assignedTo: e.target.value })}
+                                >
+                                    <option value="">-- Chọn nhân viên --</option>
+                                    {users.map(u => (
+                                        <option key={u.id || u._id} value={u.id || u._id}>{u.name} • {u.department}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {form.type === 'TEAM' && (
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Nhóm phụ trách</label>
+                                <select
+                                    required
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                    value={form.workgroupId}
+                                    onChange={e => setForm({ ...form, workgroupId: e.target.value })}
+                                >
+                                    <option value="">-- Chọn nhóm --</option>
+                                    {workgroups.map(w => (
+                                        <option key={w.id || w._id} value={w.id || w._id}>{w.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {form.type === 'DEPARTMENT' && user?.role === 'ADMIN' && (
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Phòng ban phụ trách</label>
                                 <select
@@ -422,13 +565,24 @@ export const DepartmentKPIs: React.FC = () => {
                         )}
 
                         <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Tiêu đề KPI</label>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Tiêu đề / Chỉ số đo lường</label>
                             <input
                                 type="text"
                                 required
+                                placeholder="Ví dụ: Doanh thu tháng, Lead gen..."
                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
                                 value={form.title}
                                 onChange={e => setForm({ ...form, title: e.target.value })}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Mô tả thêm (tùy chọn)</label>
+                            <textarea
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm"
+                                value={form.description}
+                                onChange={e => setForm({ ...form, description: e.target.value })}
+                                rows={2}
                             />
                         </div>
 
@@ -444,7 +598,7 @@ export const DepartmentKPIs: React.FC = () => {
                                         key={p.val}
                                         type="button"
                                         onClick={() => setForm({ ...form, weight: p.val })}
-                                        className={`p-3 rounded-2xl border-2 text-[10px] font-black uppercase transition-all ${((form as any).weight || 1) === p.val
+                                        className={`p-3 rounded-2xl border-2 text-[10px] font-black uppercase transition-all ${(form.weight || 1) === p.val
                                             ? p.color.replace('border-', 'bg-').replace('text-', 'text-white border-')
                                             : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'
                                             }`}
@@ -456,18 +610,25 @@ export const DepartmentKPIs: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Liên kết OKR (tùy chọn)</label>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Liên kết đo lường OKR (tùy chọn)</label>
                             <select
                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
                                 value={form.linkedKRId}
                                 onChange={e => handleKRChange(e.target.value)}
                             >
-                                <option value="">-- Mục tiêu OKR --</option>
+                                <option value="">-- Chọn mục tiêu KR để liên kết --</option>
                                 <optgroup label="--- OKRs PHÒNG BAN ---">
-                                    {okrs.filter(o => o.department === (user?.role === 'ADMIN' ? form.department : user?.department) && o.status === 'APPROVED').map(o => (o.keyResults || [])
+                                    {okrs.filter(o => o.department === (form.type === 'PERSONAL' ? 'Cá nhân' : (form.department || user?.department)) && o.status === 'APPROVED').map(o => (o.keyResults || [])
                                         .filter((kr: any) => !kpis.some(k => k.linkedKRId === (kr.id || kr._id)) || (kr.id || kr._id) === editingKPI?.linkedKRId)
                                         .map((kr: any) => (
-                                            <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
+                                            <option key={kr.id || kr._id} value={kr.id || kr._id}>[{o.type}] {o.title}: {kr.title}</option>
+                                        )))}
+                                </optgroup>
+                                <optgroup label="--- OKRs CÁ NHÂN ---">
+                                    {personalOkrs.filter(o => o.status === 'APPROVED').map(o => (o.keyResults || [])
+                                        .filter((kr: any) => !kpis.some(k => k.linkedKRId === (kr.id || kr._id)) || (kr.id || kr._id) === editingKPI?.linkedKRId)
+                                        .map((kr: any) => (
+                                            <option key={kr.id || kr._id} value={kr.id || kr._id}>[PERSONAL] {o.title}: {kr.title}</option>
                                         )))}
                                 </optgroup>
                             </select>

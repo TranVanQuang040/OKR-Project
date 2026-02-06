@@ -15,8 +15,9 @@ const KeyResultSchema = new mongoose.Schema({
 const ObjectiveSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: String,
-  type: { type: String, enum: ['COMPANY', 'DEPARTMENT', 'PERSONAL'], default: 'DEPARTMENT' },
+  type: { type: String, enum: ['COMPANY', 'DEPARTMENT', 'TEAM', 'PERSONAL'], default: 'DEPARTMENT' },
   parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Objective', default: null },
+  workgroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Workgroup', default: null },
   priority: { type: String, enum: ['HIGH', 'MEDIUM', 'LOW'], default: 'MEDIUM' },
   tags: [String],
   ownerId: String,

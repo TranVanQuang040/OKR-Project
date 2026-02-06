@@ -7,7 +7,7 @@ import * as myOkrService from '../services/myOkrService';
 
 export const MyOKRs: React.FC = () => {
   const { selectedPeriod } = useAuth();
-  const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT'>('ALL');
+  const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'TEAM'>('ALL');
   const [okrs, setOkrs] = useState<Objective[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -51,7 +51,7 @@ export const MyOKRs: React.FC = () => {
   const displayOkrs = okrs.filter(o =>
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year &&
     o.status === 'APPROVED' &&
-    (filterType === 'ALL' || (filterType === 'PERSONAL' && o.type === 'PERSONAL') || (filterType === 'DEPARTMENT' && o.type === 'DEPARTMENT'))
+    (filterType === 'ALL' || (filterType === 'PERSONAL' && o.type === 'PERSONAL') || (filterType === 'DEPARTMENT' && o.type === 'DEPARTMENT') || (filterType === 'TEAM' && o.type === 'TEAM'))
   );
 
   return (
@@ -64,6 +64,12 @@ export const MyOKRs: React.FC = () => {
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Tất cả
+          </button>
+          <button
+            onClick={() => setFilterType('TEAM')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Nhóm
           </button>
           <button
             onClick={() => setFilterType('DEPARTMENT')}

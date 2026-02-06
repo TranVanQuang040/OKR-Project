@@ -19,6 +19,7 @@ router.get('/', authMiddleware, async (req, res) => {
         if (quarter) filter.quarter = quarter;
         if (year) filter.year = Number(year);
         if (userId) filter.assignedTo = userId;
+        if (req.query.workgroupId) filter.workgroupId = req.query.workgroupId;
 
         // Non-admin users can only see their department's KPIs
         if (req.user.role !== 'ADMIN') {
@@ -90,6 +91,10 @@ router.post('/', authMiddleware, async (req, res) => {
                     req.body.department = assignedUser.department;
                 }
             }
+        }
+
+        if (type === 'TEAM' && !req.body.workgroupId) {
+            return res.status(400).json({ message: 'workgroupId is required for TEAM type' });
         }
 
         if (req.body.linkedOKRId && mongoose.Types.ObjectId.isValid(req.body.linkedOKRId)) {

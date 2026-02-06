@@ -13,6 +13,7 @@ export const Workgroups: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [editingGroup, setEditingGroup] = useState<Workgroup | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [viewingGroupMembers, setViewingGroupMembers] = useState<Workgroup | null>(null);
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -166,14 +167,17 @@ export const Workgroups: React.FC = () => {
 
                                 <div className="flex flex-col">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Thành viên ({group.members?.length || 0})</p>
-                                    <div className="flex -space-x-2 overflow-hidden">
+                                    <div
+                                        className="flex -space-x-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                                        onClick={() => setViewingGroupMembers(group)}
+                                    >
                                         {group.members?.slice(0, 5).map((m: any, idx: number) => (
                                             <img
                                                 key={idx}
-                                                src={m.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.name}`}
+                                                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${m.name || m}`}
                                                 className="w-8 h-8 rounded-full border-2 border-white bg-slate-100"
-                                                title={m.name}
-                                                alt={m.name}
+                                                title={m.name || m}
+                                                alt={m.name || m}
                                             />
                                         ))}
                                         {(group.members?.length || 0) > 5 && (
@@ -182,6 +186,12 @@ export const Workgroups: React.FC = () => {
                                             </div>
                                         )}
                                     </div>
+                                    <button
+                                        onClick={() => setViewingGroupMembers(group)}
+                                        className="text-[10px] font-bold text-indigo-600 mt-2 hover:underline text-left"
+                                    >
+                                        Xem danh sách thành viên
+                                    </button>
                                 </div>
                             </div>
 
@@ -266,8 +276,8 @@ export const Workgroups: React.FC = () => {
                                             key={u.id || u._id}
                                             onClick={() => toggleMember(u.id || u._id!)}
                                             className={`flex items-center space-x-3 p-3 rounded-xl cursor-pointer border transition-all ${formData.members.includes(u.id || u._id!)
-                                                    ? 'bg-indigo-50 border-indigo-200'
-                                                    : 'bg-white border-slate-100 hover:border-indigo-100 hover:bg-slate-50'
+                                                ? 'bg-indigo-50 border-indigo-200'
+                                                : 'bg-white border-slate-100 hover:border-indigo-100 hover:bg-slate-50'
                                                 }`}
                                         >
                                             <div className={`w-5 h-5 rounded flex items-center justify-center border ${formData.members.includes(u.id || u._id!) ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-300'
@@ -306,6 +316,61 @@ export const Workgroups: React.FC = () => {
                             </button>
                         </div>
                     </form>
+                </div>
+            )}
+
+            {viewingGroupMembers && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md p-8 space-y-6 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center border-b pb-4">
+                            <h3 className="text-xl font-bold text-slate-800">Thành viên: {viewingGroupMembers.name}</h3>
+                            <button onClick={() => setViewingGroupMembers(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                                <span className="material-icons">close</span>
+                            </button>
+                        </div>
+                        <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                                <p className="text-[10px] font-black text-indigo-500 uppercase mb-2 tracking-widest">Trưởng nhóm</p>
+                                <div className="flex items-center space-x-3">
+                                    <img
+                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${typeof viewingGroupMembers.leaderId === 'object' ? viewingGroupMembers.leaderId.name : allUsers.find(u => u.id === viewingGroupMembers.leaderId || u._id === viewingGroupMembers.leaderId)?.name}`}
+                                        className="w-10 h-10 rounded-full border border-indigo-200"
+                                    />
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-800">{typeof viewingGroupMembers.leaderId === 'object' ? viewingGroupMembers.leaderId.name : allUsers.find(u => u.id === viewingGroupMembers.leaderId || u._id === viewingGroupMembers.leaderId)?.name}</p>
+                                        <p className="text-xs text-indigo-600 font-medium">{typeof viewingGroupMembers.leaderId === 'object' ? viewingGroupMembers.leaderId.role : (allUsers.find(u => u.id === viewingGroupMembers.leaderId || u._id === viewingGroupMembers.leaderId)?.role || 'MANAGER')}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <p className="text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest px-1">Các thành viên khác ({viewingGroupMembers.members?.length || 0})</p>
+                                {viewingGroupMembers.members?.map((m: any, idx: number) => {
+                                    const memberData = typeof m === 'object' ? m : allUsers.find(u => u.id === m || u._id === m);
+                                    if (!memberData) return null;
+                                    return (
+                                        <div key={idx} className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${memberData.name}`} className="w-8 h-8 rounded-full border border-slate-100" />
+                                            <div>
+                                                <p className="text-sm font-bold text-slate-700">{memberData.name}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase">{memberData.role} • {memberData.department}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {(!viewingGroupMembers.members || viewingGroupMembers.members.length === 0) && (
+                                    <p className="text-center py-4 text-slate-400 text-xs italic">Chưa có thành viên nào khác.</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="pt-4 border-t">
+                            <button
+                                onClick={() => setViewingGroupMembers(null)}
+                                className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

@@ -75,12 +75,5 @@ export const userService = {
       body: JSON.stringify({ avatar }) 
     });
     return normalizeId(res);
-  },
-
-  changePassword: async (id: string, password: string) => {
-    return await apiRequest(`/users/${id}/password`, {
-      method: 'POST',
-      body: JSON.stringify({ password })
-    });
   }
 };

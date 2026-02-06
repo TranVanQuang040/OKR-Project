@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
 import { userService } from '../services/userService';
-import { getDepartments, syncDepartmentHeads } from '../services/departmentService';
+import { getDepartments } from '../services/departmentService';
 
 // Helper an toàn để lấy ID
 const getUserId = (user: any): string => user?.id || user?._id || '';
@@ -75,18 +75,10 @@ export const Users: React.FC = () => {
       );
     }
 
-    // Bước 3: Sắp xếp theo role (ADMIN luôn nằm trên đầu)
-    accessibleUsers.sort((a, b) => {
-      const roleOrder = { 'ADMIN': 0, 'MANAGER': 1, 'EMPLOYEE': 2 };
-      const orderA = roleOrder[a.role as keyof typeof roleOrder] ?? 3;
-      const orderB = roleOrder[b.role as keyof typeof roleOrder] ?? 3;
-      return orderA - orderB;
-    });
-
     return accessibleUsers;
   }, [allUsers, currentUser, searchTerm]);
 
-  // 4. Logic Phân nhóm theo Phòng ban (ADMIN luôn trên đầu)
+  // 4. Logic Phân nhóm theo Phòng ban
   const groupedUsers = useMemo(() => {
     const groups: { [key: string]: any[] } = {};
     
@@ -98,21 +90,8 @@ export const Users: React.FC = () => {
       groups[deptName].push(u);
     });
 
-    // Chuyển đổi thành entries và sắp xếp
-    let entries = Object.entries(groups);
-    
-    // Tìm phòng ban có ADMIN và đưa lên đầu
-    entries.sort((a, b) => {
-      const aHasAdmin = a[1].some(u => u.role === 'ADMIN');
-      const bHasAdmin = b[1].some(u => u.role === 'ADMIN');
-      
-      if (aHasAdmin && !bHasAdmin) return -1;
-      if (!aHasAdmin && bHasAdmin) return 1;
-      
-      return a[0].localeCompare(b[0]);
-    });
-
-    return entries;
+    // Sắp xếp thứ tự các phòng ban (nếu cần)
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
   }, [processedUsers]);
 
   // --- Các hàm xử lý Form (Giữ nguyên logic cũ) ---
@@ -143,22 +122,12 @@ export const Users: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      let updatedUser;
       if (editingUserId) {
-        // Nếu đang edit, tách password riêng
         const payload: any = { ...formData };
-        const newPassword = payload.password;
-        delete payload.password;
+        if (!payload.password) delete payload.password;
         delete payload.id;
         delete payload._id;
-        
-        // Cập nhật thông tin chung
-        updatedUser = await userService.updateUser(editingUserId, payload);
-        
-        // Nếu có mật khẩu mới, cập nhật mật khẩu qua endpoint riêng
-        if (newPassword) {
-          await userService.changePassword(editingUserId, newPassword);
-        }
+        await userService.updateUser(editingUserId, payload);
       } else {
         if (!formData.password) { alert("Vui lòng nhập mật khẩu."); setIsSubmitting(false); return; }
         if (!formData.department) { alert("Vui lòng chọn phòng ban."); setIsSubmitting(false); return; }
@@ -167,24 +136,8 @@ export const Users: React.FC = () => {
           ...formData,
           supervisorId: currentUser?.role === 'MANAGER' && formData.role === 'EMPLOYEE' ? currentUser.id : undefined
         };
-        updatedUser = await userService.createUser(newUserPayload);
+        await userService.createUser(newUserPayload);
       }
-      
-      // Sync department heads if user has MANAGER role
-      if (updatedUser && updatedUser.role === 'MANAGER' && formData.department) {
-        const dept = departments.find(d => d.name === formData.department);
-        console.log('Syncing heads for manager:', { updatedUser, formData, dept });
-        if (dept && dept._id) {
-          try {
-            console.log('Calling syncDepartmentHeads with dept ID:', dept._id);
-            await syncDepartmentHeads(dept._id);
-            console.log('Sync heads success');
-          } catch (err) {
-            console.error('Error syncing department heads', err);
-          }
-        }
-      }
-      
       await refreshUsers();
       setShowModal(false);
       resetForm();
@@ -200,21 +153,7 @@ export const Users: React.FC = () => {
     const targetId = getUserId(u);
     setDeletingId(targetId);
     try {
-      // If deleting a manager, sync the department after deletion
-      const deptName = u.department;
-      const dept = departments.find(d => d.name === deptName);
-      
       await userService.deleteUser(targetId);
-      
-      // Sync department heads if this was a manager
-      if (u.role === 'MANAGER' && dept && dept._id) {
-        try {
-          await syncDepartmentHeads(dept._id);
-        } catch (err) {
-          console.error('Error syncing department heads', err);
-        }
-      }
-      
       await refreshUsers();
     } catch (err: any) {
       alert(err?.message || 'Xóa thất bại');
@@ -341,10 +280,10 @@ export const Users: React.FC = () => {
                               </td>
                               <td className="px-6 py-4">
                                 <span className={`px-3 py-1 rounded-full text-[11px] font-bold border ${
-                                  u.role === 'ADMIN' ? 'bg-red-100 text-red-700 border-red-200' : 
+                                  u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700 border-purple-200' : 
                                   u.role === 'MANAGER' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
                                 }`}>
-                                  {u.role === 'ADMIN' ? 'Quản trị viên' : u.role === 'MANAGER' ? 'Quản lý' : u.role === 'EMPLOYEE' ? 'Nhân viên' : u.role}
+                                  {u.role}
                                 </span>
                               </td>
                               <td className="px-6 py-4 text-sm text-slate-500">
@@ -408,10 +347,9 @@ export const Users: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">{editingUserId ? 'Mật khẩu mới' : 'Mật khẩu'} <span className="text-red-500">{editingUserId ? '' : '*'}</span></label>
-                <input type="password" required={!editingUserId} placeholder={editingUserId ? '(để trống nếu không thay đổi)' : '••••••••'} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-indigo-500 mt-1 text-sm"
+                <label className="text-xs font-bold text-slate-500 uppercase">{editingUserId ? 'Mật khẩu mới' : 'Mật khẩu'} <span className="text-red-500">*</span></label>
+                <input type="password" required={!editingUserId} placeholder="••••••••" className="w-full p-2 border border-slate-200 rounded outline-none focus:border-indigo-500 mt-1 text-sm"
                   value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
-                {editingUserId && <p className="text-xs text-slate-400 mt-1">💡 Để trống nếu không muốn đổi mật khẩu</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

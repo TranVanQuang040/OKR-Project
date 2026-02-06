@@ -14,6 +14,7 @@ import { Login } from './pages/Login';
 import { MyOKRs } from './pages/MyOKRs';
 import { DepartmentKPIs } from './pages/DepartmentKPIs';
 import { PersonalKPIs } from './pages/PersonalKPIs';
+import { Workgroups } from './pages/Workgroups';
 
 const App: React.FC = () => {
   return (
@@ -35,7 +36,7 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
 
-           <Route path="/myOkrs" element={
+          <Route path="/myOkrs" element={
             <ProtectedRoute>
               <Layout><MyOKRs /></Layout>
             </ProtectedRoute>
@@ -48,6 +49,11 @@ const App: React.FC = () => {
           <Route path="/teams" element={
             <ProtectedRoute>
               <Layout><Teams /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/workgroups" element={
+            <ProtectedRoute>
+              <Layout><Workgroups /></Layout>
             </ProtectedRoute>
           } />
           <Route path="/tasks" element={

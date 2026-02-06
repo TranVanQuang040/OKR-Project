@@ -32,11 +32,7 @@ export interface KeyResult {
   currentValue: number;
   targetValue: number;
   unit: string;
-  weight?: number;
   progress: number;
-  source?: 'MANUAL' | 'KPI' | 'TASK';
-  linkedId?: string;
-  confidenceScore?: number;
 }
 
 export type ObjectiveStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'ON_TRACK' | 'AT_RISK' | 'BEHIND';
@@ -45,10 +41,6 @@ export interface Objective {
   id: string;
   title: string;
   description: string;
-  type?: 'COMPANY' | 'DEPARTMENT' | 'PERSONAL';
-  parentId?: string;
-  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  tags?: string[];
   ownerId: string;
   ownerName: string;
   department: string;
@@ -57,19 +49,12 @@ export interface Objective {
   status: ObjectiveStatus;
   progress: number;
   keyResults: KeyResult[];
-  startDate?: string;
-  endDate?: string;
   createdAt: string;
 }
 
 export interface MyObjective {
   id: string;
   title: string;
-  description?: string;
-  type?: 'COMPANY' | 'DEPARTMENT' | 'PERSONAL';
-  parentId?: string;
-  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  tags?: string[];
   ownerId: string;
   ownerName: string;
   department: string;
@@ -77,8 +62,6 @@ export interface MyObjective {
   year: number;
   status: string;
   keyResults: KeyResult[];
-  startDate?: string;
-  endDate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,7 +89,6 @@ export interface KPI {
   targetValue: number;
   currentValue: number;
   unit: string;
-  weight?: number;
   progress: number;
   status: KPIStatus;
   department: string;
@@ -117,9 +99,6 @@ export interface KPI {
   assignedByName?: string;
   linkedOKRId?: string;
   linkedOKRTitle?: string;
-  linkedKRId?: string;
-  linkedKRTitle?: string;
-  linkedTaskId?: string;
   startDate: string;
   endDate: string;
   quarter: string;

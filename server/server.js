@@ -27,6 +27,8 @@ import tasksRoutes from './routes/tasks.js'
 import reportsRoutes from './routes/reports.js'
 import departmentsRoutes from './routes/departments.js'
 import kpisRoutes from './routes/kpis.js'
+import analyticsRoutes from './routes/analytics.js'
+import workgroupsRoutes from './routes/workgroups.js'
 import authMiddleware from './middleware/auth.js'
 
 // MongoDB Atlas
@@ -89,7 +91,8 @@ app.use('/api/tasks', tasksRoutes)
 app.use('/api/reports', reportsRoutes)
 app.use('/api/departments', departmentsRoutes)
 app.use('/api/kpis', kpisRoutes)
-
+app.use('/api/analytics', analyticsRoutes)
+app.use('/api/workgroups', workgroupsRoutes)
 // Useful endpoint for the frontend to check current user
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(req.user)

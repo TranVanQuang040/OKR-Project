@@ -8,7 +8,7 @@ const TaskSchema = new mongoose.Schema({
   assigneeName: String,
   krId: String,
   krTitle: String,
-  kpiId: String,
+  kpiId: { type: mongoose.Schema.Types.ObjectId, ref: 'KPI' },
   dueDate: String,
   priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'MEDIUM' }
 }, { timestamps: true });

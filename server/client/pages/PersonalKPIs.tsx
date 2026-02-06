@@ -1,30 +1,33 @@
+
 import React, { useEffect, useState } from 'react';
 import { getKPIs, createKPI, updateKPI, deleteKPI, updateKPIProgress } from '../services/kpiService';
 import { getOKRs, getMyOKRsByUser } from '../services/okrService';
 import { userService } from '../services/userService';
 import { useAuth } from '../context/AuthContext';
-import { KPI, Objective, User } from '../types';
+import { KPI, Objective, User, Task } from '../types';
+
+import { dataService } from '../services/dataService';
 
 export const PersonalKPIs: React.FC = () => {
     const { user, selectedPeriod } = useAuth();
     const [kpis, setKpis] = useState<KPI[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [okrs, setOkrs] = useState<Objective[]>([]);
-    const [personalOkrs, setPersonalOkrs] = useState<any[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
 
     const [form, setForm] = useState({
         title: '',
         description: '',
-        targetValue: 0,
-        unit: '',
         assignedTo: '',
-        linkedOKRId: '',
-        endDate: ''
+        linkedTaskId: '',
+        endDate: '',
+        weight: 1
     });
 
     const isManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -32,42 +35,23 @@ export const PersonalKPIs: React.FC = () => {
     useEffect(() => {
         loadKPIs();
         loadOKRs();
+        loadTasks();
         if (isManager) loadUsers();
     }, [selectedPeriod, user]);
 
-    useEffect(() => {
-        if (form.assignedTo && isManager) {
-            loadPersonalOKRs(form.assignedTo);
-        } else {
-            setPersonalOkrs([]);
-        }
-    }, [form.assignedTo]);
-
-    const loadPersonalOKRs = async (userId: string) => {
-        try {
-            const data = await getMyOKRsByUser(userId, { quarter: selectedPeriod.quarter, year: selectedPeriod.year });
-            setPersonalOkrs(data || []);
-        } catch (err) {
-            console.error('Failed to load personal OKRs', err);
-        }
-    };
-
     const loadKPIs = async () => {
         if (!user?.id) return;
-        
+
         setIsLoading(true);
         try {
             let data;
             if (isManager) {
-                // Managers see all personal KPIs they assigned (assigned by them)
-                // Load all PERSONAL KPIs without department filter since they can assign to different departments
                 data = await getKPIs({
                     type: 'PERSONAL',
                     quarter: selectedPeriod.quarter,
                     year: selectedPeriod.year
                 });
             } else {
-                // Employees see only their own KPIs
                 data = await getKPIs({
                     type: 'PERSONAL',
                     userId: user.id,
@@ -75,7 +59,12 @@ export const PersonalKPIs: React.FC = () => {
                     year: selectedPeriod.year
                 });
             }
-            setKpis(data || []);
+            const sorted = (data || []).sort((a: any, b: any) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return dateB - dateA || String(b.id).localeCompare(String(a.id));
+            });
+            setKpis(sorted);
         } catch (err) {
             console.error('Failed to load KPIs', err);
         } finally {
@@ -92,14 +81,21 @@ export const PersonalKPIs: React.FC = () => {
         }
     };
 
+    const loadTasks = async () => {
+        try {
+            const data = await dataService.getTasks();
+            setTasks(data || []);
+        } catch (err) {
+            console.error('Failed to load tasks', err);
+        }
+    };
+
     const loadUsers = async () => {
         try {
             const data = await userService.getUsers();
             if (user?.role === 'ADMIN') {
-                // Admin thấy tất cả nhân viên và manager
                 setUsers(data.filter((u: User) => u.id !== user.id));
             } else if (user?.role === 'MANAGER') {
-                // Manager lọc theo phòng ban của họ
                 const filtered = data.filter((u: User) => u.department === user?.department && u.id !== user.id);
                 setUsers(filtered);
             }
@@ -110,21 +106,13 @@ export const PersonalKPIs: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.title || form.targetValue <= 0 || !form.unit) {
-            return alert('Vui lòng điền đủ thông tin');
-        }
-
-        if (!isManager) {
-            return alert('Chỉ Manager mới có thể tạo KPI cá nhân');
-        }
-
-        if (!form.assignedTo) {
-            return alert('Vui lòng chọn nhân viên');
-        }
+        if (!form.title) return alert('Vui lòng điền đủ thông tin');
+        if (!isManager && !editingKPI) return alert('Chỉ Manager mới có thể tạo KPI cá nhân');
+        if (!form.assignedTo) return alert('Vui lòng chọn nhân viên');
 
         try {
             const assignedUser = users.find(u => u.id === form.assignedTo);
-            const payload: Partial<KPI> = {
+            const payload: any = {
                 ...form,
                 type: 'PERSONAL',
                 department: assignedUser?.department || '',
@@ -136,11 +124,6 @@ export const PersonalKPIs: React.FC = () => {
                 progress: editingKPI?.progress || 0,
                 status: 'ACTIVE'
             };
-
-            if (form.linkedOKRId) {
-                const okr = okrs.find(o => o.id === form.linkedOKRId);
-                if (okr) payload.linkedOKRTitle = okr.title;
-            }
 
             if (editingKPI) {
                 const updated = await updateKPI(editingKPI.id, payload);
@@ -155,9 +138,7 @@ export const PersonalKPIs: React.FC = () => {
             setTimeout(() => setStatusMessage(''), 3000);
             closeModal();
         } catch (err: any) {
-            console.error('KPI Submission Error:', err);
-            const msg = err?.body?.message || err?.message || 'Không thể lưu KPI';
-            alert(`${msg} (Lỗi: ${err?.status || 'Unknown'})`);
+            alert('Không thể lưu KPI: ' + (err.message || 'Unknown error'));
         }
     };
 
@@ -170,25 +151,26 @@ export const PersonalKPIs: React.FC = () => {
             setStatusMessage('Xóa KPI thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            alert(err?.message || 'Không thể xóa KPI');
+            alert('Lỗi khi xóa KPI');
         } finally {
             setDeletingId(null);
         }
     };
 
-    const handleMarkAsCompleted = async (kpi: KPI) => {
-        if (!confirm(`Xác nhận hoàn thành KPI: ${kpi.title}?`)) return;
-
+    const handleUpdateProgress = async (id: string, progress: number) => {
         try {
-            const updated = await updateKPIProgress(kpi.id, kpi.targetValue);
+            const updated = await updateKPIProgress(id, progress);
             setKpis(prev => prev.map(k => k.id === updated.id ? updated : k));
-            setStatusMessage('Đã đánh dấu hoàn thành KPI');
+            setStatusMessage('Cập nhật tiến độ thành công');
             setTimeout(() => setStatusMessage(''), 3000);
         } catch (err: any) {
-            console.error('Mark As Completed Error:', err);
-            const msg = err?.body?.message || err?.message || 'Không thể cập nhật';
-            alert(`${msg} (Mã: ${err?.status || '500'})`);
+            alert('Không thể cập nhật tiến độ');
         }
+    };
+
+    const handleMarkAsCompleted = async (kpi: KPI) => {
+        if (!confirm(`Xác nhận hoàn thành KPI: ${kpi.title}?`)) return;
+        handleUpdateProgress(kpi.id, 100);
     };
 
     const openEditModal = (kpi: KPI) => {
@@ -196,19 +178,37 @@ export const PersonalKPIs: React.FC = () => {
         setForm({
             title: kpi.title,
             description: kpi.description || '',
-            targetValue: kpi.targetValue,
-            unit: kpi.unit,
             assignedTo: kpi.assignedTo || '',
             linkedOKRId: kpi.linkedOKRId || '',
-            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : ''
+            linkedKRId: kpi.linkedKRId || '',
+            linkedTaskId: kpi.linkedTaskId || '',
+            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : '',
+            weight: (kpi as any).weight || 1
         });
         setShowModal(true);
+    };
+
+    const handleTaskChange = async (taskId: string) => {
+        if (!taskId) {
+            setForm({ ...form, linkedTaskId: '' });
+            return;
+        }
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+            setForm({
+                ...form,
+                linkedTaskId: taskId,
+                title: task.title,
+                description: task.description || '',
+                assignedTo: task.assigneeId || form.assignedTo
+            });
+        }
     };
 
     const closeModal = () => {
         setShowModal(false);
         setEditingKPI(null);
-        setForm({ title: '', description: '', targetValue: 0, unit: '', assignedTo: '', linkedOKRId: '', endDate: '' });
+        setForm({ title: '', description: '', assignedTo: '', linkedOKRId: '', linkedKRId: '', linkedTaskId: '', endDate: '', weight: 1 });
     };
 
     const getStatusColor = (status: string) => {
@@ -226,6 +226,24 @@ export const PersonalKPIs: React.FC = () => {
         return 'bg-rose-500';
     };
 
+    const getTimeRemaining = (endDate: string) => {
+        if (!endDate) return null;
+        const now = new Date();
+        const end = new Date(endDate);
+        const diff = end.getTime() - now.getTime();
+        const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+        if (days < 0) return { text: `Quá hạn ${Math.abs(days)} ngày`, color: 'text-rose-600 font-bold' };
+        if (days === 0) return { text: 'Hết hạn hôm nay', color: 'text-amber-600 font-bold' };
+        return { text: `Còn ${days} ngày`, color: 'text-indigo-600 font-medium' };
+    };
+
+    const getPriorityLabel = (weight: number) => {
+        if (weight >= 7) return { label: 'Cao (High)', color: 'bg-rose-100 text-rose-600' };
+        if (weight >= 4) return { label: 'Trung bình (Medium)', color: 'bg-amber-100 text-amber-600' };
+        return { label: 'Thấp (Low)', color: 'bg-slate-100 text-slate-600' };
+    };
+
     return (
         <div className="space-y-8">
             <div className="flex justify-between items-center">
@@ -235,15 +253,27 @@ export const PersonalKPIs: React.FC = () => {
                         {isManager ? 'Quản lý KPI cá nhân của nhân viên' : 'Theo dõi KPI cá nhân của bạn'}
                     </p>
                 </div>
-                {isManager && (
-                    <button
-                        onClick={() => { closeModal(); setShowModal(true); }}
-                        className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center space-x-2"
+                <div className="flex items-center space-x-3">
+                    <select
+                        value={filterPriority}
+                        onChange={e => setFilterPriority(e.target.value as any)}
+                        className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                        <span className="material-icons text-lg">add</span>
-                        <span>Gán KPI</span>
-                    </button>
-                )}
+                        <option value="ALL">Mức độ: Tất cả</option>
+                        <option value="HIGH">Ưu tiên: Cao</option>
+                        <option value="MEDIUM">Ưu tiên: Trung bình</option>
+                        <option value="LOW">Ưu tiên: Thấp</option>
+                    </select>
+                    {isManager && (
+                        <button
+                            onClick={() => { closeModal(); setShowModal(true); }}
+                            className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center space-x-2"
+                        >
+                            <span className="material-icons text-lg">add</span>
+                            <span>Gán KPI</span>
+                        </button>
+                    )}
+                </div>
             </div>
 
             {statusMessage && (
@@ -266,198 +296,241 @@ export const PersonalKPIs: React.FC = () => {
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Nhân viên</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">KPI</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Mục tiêu</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Tiến độ</th>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Thời hạn</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Trạng thái</th>
                                     <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {kpis.map(kpi => (
-                                    <tr key={kpi.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center space-x-3">
-                                                <img
-                                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${kpi.assignedToName}`}
-                                                    className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
-                                                    alt="avatar"
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800">{kpi.assignedToName}</p>
-                                                    <p className="text-xs text-slate-500">
-                                                        {kpi.assignedToDepartment || kpi.department}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{kpi.title}</p>
-                                                {kpi.linkedOKRTitle && (
-                                                    <p className="text-xs text-indigo-600 mt-1">🎯 {kpi.linkedOKRTitle}</p>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{kpi.currentValue} / {kpi.targetValue}</p>
-                                                <p className="text-xs text-slate-500">{kpi.unit}</p>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="space-y-1">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-bold text-indigo-600">{kpi.progress}%</span>
-                                                </div>
-                                                <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden">
-                                                    <div className={`h-full ${getProgressColor(kpi.progress)}`} style={{ width: `${kpi.progress}%` }}></div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
-                                                {kpi.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center justify-end space-x-2">
-                                                <button
-                                                    onClick={() => handleMarkAsCompleted(kpi)}
-                                                    className="text-emerald-600 text-sm font-bold hover:underline"
-                                                    title="Đánh dấu hoàn thành"
-                                                >
-                                                    Hoàn thành
-                                                </button>
-                                                {isManager && (
-                                                    <>
-                                                        <button onClick={() => openEditModal(kpi)} className="text-slate-600 text-sm font-bold hover:underline">Sửa</button>
+                                {kpis
+                                    .filter(k => {
+                                        if (filterPriority === 'ALL') return true;
+                                        const weight = (k as any).weight || 1;
+                                        if (filterPriority === 'HIGH') return weight >= 7;
+                                        if (filterPriority === 'MEDIUM') return weight >= 4 && weight < 7;
+                                        if (filterPriority === 'LOW') return weight < 4;
+                                        return true;
+                                    })
+                                    .map(kpi => {
+                                        const timeRem = getTimeRemaining(kpi.endDate);
+                                        const prio = getPriorityLabel((kpi as any).weight || 1);
+                                        return (
+                                            <tr key={kpi.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center space-x-3">
+                                                        <img
+                                                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${kpi.assignedToName}`}
+                                                            className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
+                                                            alt="avatar"
+                                                        />
+                                                        <div>
+                                                            <p className="text-sm font-bold text-slate-800">{kpi.assignedToName}</p>
+                                                            <p className="text-[10px] font-black text-indigo-500 uppercase mt-0.5 px-1.5 py-0.5 bg-indigo-50 rounded-md inline-block">
+                                                                Phòng: {kpi.assignedToDepartment || kpi.department || '—'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div>
+                                                        <div className="flex items-center space-x-2 mb-1">
+                                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${prio.color}`}>
+                                                                {prio.label}
+                                                            </span>
+                                                            <p className="text-sm font-bold text-slate-800">{kpi.title}</p>
+                                                        </div>
+                                                        {kpi.linkedOKRTitle && (
+                                                            <p className="text-[10px] text-indigo-600 mt-1 font-medium bg-indigo-50/50 px-2 py-1 rounded border border-indigo-100/50 inline-block">
+                                                                🎯 {kpi.linkedOKRTitle} {kpi.linkedKRTitle ? `> ${kpi.linkedKRTitle}` : ''}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-sm font-bold text-indigo-600">{kpi.progress}%</span>
+                                                        </div>
+                                                        <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div className={`h-full ${getProgressColor(kpi.progress)}`} style={{ width: `${kpi.progress}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {kpi.endDate ? (
+                                                        <div className="flex flex-col">
+                                                            <span className="text-xs font-bold text-slate-600">{new Date(kpi.endDate).toLocaleDateString('vi-VN')}</span>
+                                                            {timeRem && <span className={`text-[10px] ${timeRem.color}`}>{timeRem.text}</span>}
+                                                        </div>
+                                                    ) : <span className="text-xs text-slate-400">—</span>}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
+                                                        {kpi.status === 'ACTIVE' ? 'Đang thực hiện' : kpi.status === 'COMPLETED' ? 'Hoàn thành' : kpi.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center justify-end space-x-2">
+                                                        <button onClick={() => openEditModal(kpi)} className="p-1 px-2 bg-indigo-50 text-indigo-600 rounded text-[10px] font-bold hover:bg-indigo-100 transition-colors uppercase">Cập nhật</button>
                                                         <button
-                                                            onClick={() => handleDelete(kpi.id)}
-                                                            disabled={deletingId === kpi.id}
-                                                            className="text-rose-600 text-sm font-bold hover:underline"
+                                                            onClick={() => handleMarkAsCompleted(kpi)}
+                                                            className="p-1 px-2 bg-emerald-50 text-emerald-600 rounded text-[10px] font-bold hover:bg-emerald-100 transition-colors uppercase"
+                                                            title="Đánh dấu hoàn thành"
                                                         >
-                                                            {deletingId === kpi.id ? '...' : 'Xóa'}
+                                                            Xong
                                                         </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                                        {isManager && (
+                                                            <button
+                                                                onClick={() => handleDelete(kpi.id)}
+                                                                disabled={deletingId === kpi.id}
+                                                                className="p-1 px-2 bg-rose-50 text-rose-600 rounded text-[10px] font-bold hover:bg-rose-100 transition-colors uppercase"
+                                                            >
+                                                                {deletingId === kpi.id ? '...' : 'Xóa'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                             </tbody>
                         </table>
                     )}
                 </div>
             )}
 
-            {showModal && isManager && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-lg font-bold">{editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI cá nhân'}</h3>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nhân viên</label>
-                            <select
-                                required
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.assignedTo}
-                                onChange={e => setForm({ ...form, assignedTo: e.target.value })}
-                                disabled={!!editingKPI}
-                            >
-                                <option value="">-- Chọn nhân viên --</option>
-                                {users.map(u => (
-                                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên KPI</label>
-                            <input
-                                type="text"
-                                required
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.title}
-                                onChange={e => setForm({ ...form, title: e.target.value })}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả (tùy chọn)</label>
-                            <textarea
-                                rows={2}
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.description}
-                                onChange={e => setForm({ ...form, description: e.target.value })}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Giá trị mục tiêu</label>
-                                <input
-                                    type="number"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                    value={form.targetValue || ''}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        setForm({ ...form, targetValue: val === '' ? 0 : Number(val) });
-                                    }}
-                                />
+            {showModal && (
+                <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm">
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white w-full max-w-lg h-full shadow-2xl animate-in slide-in-from-right duration-500 overflow-y-auto"
+                    >
+                        <div className="p-8 space-y-8">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                                        {editingKPI ? 'Chỉnh sửa KPI' : 'Gán KPI Mói'}
+                                    </h3>
+                                    <p className="text-sm text-slate-400 font-medium">Thiết lập chỉ số quan trọng cho nhân sự</p>
+                                </div>
+                                <button onClick={closeModal} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                                    <span className="material-icons">close</span>
+                                </button>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Đơn vị</label>
-                                <input
-                                    type="text"
-                                    required
-                                    className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={form.unit}
-                                    onChange={e => setForm({ ...form, unit: e.target.value })}
-                                />
-                            </div>
-                        </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết OKR (tùy chọn)</label>
-                            <select
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.linkedOKRId}
-                                onChange={e => setForm({ ...form, linkedOKRId: e.target.value })}
-                            >
-                                <option value="">-- Không liên kết --</option>
-                                <optgroup label="OKR Phòng ban">
-                                    {okrs.filter(o => o.department === user?.department).map(okr => (
-                                        <option key={okr.id} value={okr.id}>{okr.title}</option>
-                                    ))}
-                                </optgroup>
-                                {personalOkrs.length > 0 && (
-                                    <optgroup label="OKR Cá nhân của nhân viên">
-                                        {personalOkrs.map(okr => (
-                                            <option key={okr.id || okr._id} value={okr.id || okr._id}>{okr.title}</option>
+                            <form onSubmit={handleSubmit} className="space-y-6 pb-20">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Nhân sự thực hiện</label>
+                                    <select
+                                        required
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 transition-all appearance-none cursor-pointer"
+                                        value={form.assignedTo}
+                                        onChange={e => setForm({ ...form, assignedTo: e.target.value })}
+                                        disabled={!!editingKPI}
+                                    >
+                                        <option value="">-- Chọn nhân viên --</option>
+                                        {users.map(u => (
+                                            <option key={u.id} value={u.id}>{u.name} • {u.department}</option>
                                         ))}
-                                    </optgroup>
-                                )}
-                            </select>
-                        </div>
+                                    </select>
+                                </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hạn hoàn thành</label>
-                            <input
-                                type="date"
-                                className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={form.endDate}
-                                onChange={e => setForm({ ...form, endDate: e.target.value })}
-                            />
-                        </div>
+                                <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-3xl border border-indigo-100 shadow-sm space-y-3">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                        <span className="material-icons text-indigo-500 text-sm">auto_awesome</span>
+                                        <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest">Tiện ích gán nhanh</label>
+                                    </div>
+                                    <select
+                                        className="w-full p-3 bg-white border border-indigo-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-slate-700 shadow-sm"
+                                        value={form.linkedTaskId}
+                                        onChange={e => handleTaskChange(e.target.value)}
+                                    >
+                                        <option value="">-- Lấy thông tin từ công việc --</option>
+                                        {tasks
+                                            .filter(t => (form.assignedTo ? t.assigneeId === form.assignedTo : true) && (!kpis.some(k => k.linkedTaskId === t.id) || t.id === editingKPI?.linkedTaskId))
+                                            .map(task => (
+                                                <option key={task.id} value={task.id}>
+                                                    {task.title}
+                                                </option>
+                                            ))}
+                                    </select>
+                                </div>
 
-                        <div className="flex justify-end space-x-2 pt-4">
-                            <button type="button" onClick={closeModal} className="px-4 py-2 text-slate-600 font-bold text-sm">Hủy</button>
-                            <button type="submit" className="px-6 py-2 rounded-lg font-bold text-sm shadow-lg shadow-indigo-100 bg-indigo-600 text-white">
-                                {editingKPI ? 'Lưu thay đổi' : 'Gán KPI'}
-                            </button>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Chỉ số KPI (Tiêu đề)</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Ví dụ: Tăng trưởng doanh thu cá nhân..."
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all"
+                                        value={form.title}
+                                        onChange={e => setForm({ ...form, title: e.target.value })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Mô tả mục tiêu</label>
+                                    <textarea
+                                        rows={3}
+                                        placeholder="Chi tiết về cách thức đo lường và kỳ vọng..."
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all"
+                                        value={form.description}
+                                        onChange={e => setForm({ ...form, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Đánh giá mức độ ưu tiên</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {[
+                                            { val: 1, label: 'Thấp (Low)', color: 'border-slate-200 text-slate-500' },
+                                            { val: 5, label: 'Trung Bình', color: 'border-amber-200 text-amber-600' },
+                                            { val: 9, label: 'Cao (High)', color: 'border-rose-200 text-rose-600' }
+                                        ].map(p => (
+                                            <button
+                                                key={p.val}
+                                                type="button"
+                                                onClick={() => setForm({ ...form, weight: p.val })}
+                                                className={`p-3 rounded-2xl border-2 text-[10px] font-black uppercase transition-all ${((form as any).weight || 1) === p.val
+                                                    ? p.color.replace('border-', 'bg-').replace('text-', 'text-white border-')
+                                                    : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'
+                                                    }`}
+                                            >
+                                                {p.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Hạn hoàn thành</label>
+                                    <input
+                                        type="date"
+                                        className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all text-slate-700"
+                                        value={form.endDate}
+                                        onChange={e => setForm({ ...form, endDate: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t border-slate-100 flex space-x-4 max-w-lg ml-auto">
+                                    <button
+                                        type="button"
+                                        onClick={closeModal}
+                                        className="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                                    >
+                                        Hủy bỏ
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 hover:-translate-y-1 transition-all"
+                                    >
+                                        {editingKPI ? 'Cập nhật thay đổi' : 'Giao KPI ngay'}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
-                    </form>
+                    </div>
                 </div>
             )}
         </div>

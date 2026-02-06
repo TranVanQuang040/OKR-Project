@@ -42,7 +42,7 @@ export const dataService = {
     try {
       const users = await apiRequest('/users', { method: 'GET' });
       const norm = (users || []).map(normalizeId);
-      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(norm)); } catch(e) {}
+      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(norm)); } catch (e) { }
       return norm;
     } catch (err) {
       const data = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -74,10 +74,10 @@ export const dataService = {
       }
 
       console.warn("API Error (Network/Server), using LocalStorage fallback", err);
-      
+
       // Chỉ fallback khi lỗi mạng hoặc lỗi server nội bộ (500)
       const users = await dataService.getUsers();
-      
+
       if (isUpdate) {
         const index = users.findIndex(u => u.id === user.id);
         if (index !== -1) {
@@ -91,7 +91,7 @@ export const dataService = {
         } as User;
         users.push(newUser);
       }
-      
+
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
       return isUpdate ? user : users[users.length - 1];
     }
@@ -267,7 +267,7 @@ export const dataService = {
     } catch (err) {
       const okrs = await dataService.getOKRs();
       const tasks = await dataService.getTasks();
-      
+
       okrs.forEach((okr: any) => {
         let changed = false;
         okr.keyResults.forEach((kr: any) => {
@@ -284,6 +284,17 @@ export const dataService = {
         }
       });
       localStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
+    }
+  },
+
+  // --- KPIs ---
+  getKPIs: async (filters: any = {}): Promise<any[]> => {
+    try {
+      const query = new URLSearchParams(filters).toString();
+      const res = await apiRequest(`/kpis${query ? '?' + query : ''}`, { method: 'GET' });
+      return (res || []).map(normalizeId);
+    } catch (err) {
+      return [];
     }
   }
 };

@@ -1,9 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Task, Objective } from '../types';
 import { dataService } from '../services/dataService';
 import * as myOkrService from '../services/myOkrService';
-import * as kpiService from '../services/kpiService';
 
 export const Tasks: React.FC = () => {
   const { user, allUsers, selectedPeriod } = useAuth();
@@ -47,67 +47,57 @@ export const Tasks: React.FC = () => {
 
   const loadData = async () => {
     setIsLoading(true);
+    const t = await dataService.getTasks();
+    const o = await dataService.getOKRs();
+
+    // Fetch KPIs
+    let k: any[] = [];
     try {
-      const t = await dataService.getTasks();
-      const o = await dataService.getOKRs();
+      const kpiData = await dataService.getKPIs();
+      k = kpiData || [];
+    } catch (err) { }
 
-      // Fetch KPIs
-      let k: any[] = [];
-      try {
-        const kpiData = await kpiService.getKPIs();
-        k = kpiData || [];
-      } catch (err) { }
-
-      // Lấy myOKRs với period
-      let m: Objective[] = [];
-      try {
-        const myOKRsData = await myOkrService.getMyOKRs({
-          quarter: selectedPeriod.quarter,
-          year: selectedPeriod.year
-        });
-        m = (myOKRsData || []).map((okr: any) => ({
-          ...okr,
-          id: okr._id || okr.id,
-          keyResults: (okr.keyResults || []).map((kr: any) => ({ ...kr, id: kr._id || kr.id }))
-        }));
-      } catch (err) {
-        // Fallback - không hiển thị lỗi nếu không lấy được myOKRs
-      }
-
-      setTasks(t);
-      setOkrs(o);
-      setMyOkrs(m);
-      setKpis(k);
+    // Lấy myOKRs với period
+    let m: Objective[] = [];
+    try {
+      const myOKRsData = await myOkrService.getMyOKRs({
+        quarter: selectedPeriod.quarter,
+        year: selectedPeriod.year
+      });
+      m = (myOKRsData || []).map((okr: any) => ({
+        ...okr,
+        id: okr._id || okr.id,
+        keyResults: (okr.keyResults || []).map((kr: any) => ({ ...kr, id: kr._id || kr.id }))
+      }));
     } catch (err) {
-      console.error("Failed to load tasks data:", err);
-    } finally {
-      setIsLoading(false);
+      // Fallback - không hiển thị lỗi nếu không lấy được myOKRs
     }
+
+    setTasks(t);
+    setOkrs(o);
+    setMyOkrs(m);
+    setKpis(k);
+    setIsLoading(false);
   };
 
   useEffect(() => { loadData(); }, [selectedPeriod]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const assignee = allUsers.find(u => u.id === formData.assigneeId);
-      const krTitle = getKrTitle(formData.krId);
+    const assignee = allUsers.find(u => u.id === formData.assigneeId);
+    const krTitle = getKrTitle(formData.krId);
 
-      const payload = { ...formData, assigneeName: assignee?.name || 'Vô danh', krTitle };
+    const payload = { ...formData, assigneeName: assignee?.name || 'Vô danh', krTitle };
 
-      if (editingTask) {
-        await dataService.updateTask(editingTask.id, payload);
-      } else {
-        await dataService.saveTask(payload);
-      }
-      await loadData();
-      window.dispatchEvent(new CustomEvent('okrUpdated')); // Thông báo cho Dashboard cập nhật
-      setShowModal(false);
-      setEditingTask(null);
-      setFormData({ title: '', description: '', assigneeId: '', krId: '', kpiId: '', dueDate: '', priority: 'MEDIUM' });
-    } catch (err: any) {
-      alert(err?.message || 'Không thể lưu công việc');
+    if (editingTask) {
+      await dataService.updateTask(editingTask.id, payload);
+    } else {
+      await dataService.saveTask(payload);
     }
+    await loadData();
+    setShowModal(false);
+    setEditingTask(null);
+    setFormData({ title: '', description: '', assigneeId: '', krId: '', kpiId: '', dueDate: '', priority: 'MEDIUM' });
   };
 
   const handleEdit = (task: Task) => {
@@ -130,7 +120,7 @@ export const Tasks: React.FC = () => {
     try {
       await dataService.deleteTask(id);
       await loadData();
-      window.dispatchEvent(new CustomEvent('okrUpdated')); // Thông báo cho Dashboard cập nhật
+      window.dispatchEvent(new CustomEvent('okrUpdated'));
     } catch (err: any) {
       alert(err?.message || 'Không thể xóa công việc');
     } finally {
@@ -139,13 +129,9 @@ export const Tasks: React.FC = () => {
   };
 
   const updateStatus = async (id: string, status: any) => {
-    try {
-      await dataService.updateTaskStatus(id, status);
-      await loadData();
-      window.dispatchEvent(new CustomEvent('okrUpdated')); // Thông báo cho Dashboard cập nhật
-    } catch (err: any) {
-      alert(err?.message || 'Không thể cập nhật trạng thái');
-    }
+    await dataService.updateTaskStatus(id, status);
+    await loadData();
+    window.dispatchEvent(new CustomEvent('okrUpdated'));
   };
 
   if (isLoading) {
@@ -202,56 +188,46 @@ export const Tasks: React.FC = () => {
                 <span className="material-icons text-slate-400 text-sm">person</span>
                 <span className="text-xs font-bold text-slate-700">{task.assigneeName}</span>
               </div>
-              <div className="flex items-center space-x-2 text-rose-500 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
-                <span className="material-icons text-xs">event</span>
-                <span className="text-[10px] font-black">{task.dueDate || 'Chưa có hạn'}</span>
+              <div className="flex items-center space-x-3">
+                <button onClick={() => handleEdit(task)} className="text-indigo-600 text-sm font-bold hover:underline">Sửa</button>
+                <button onClick={() => handleDelete(task.id)} disabled={deletingId === task.id} className="text-rose-600 text-sm font-bold hover:underline">{deletingId === task.id ? 'Đang xóa…' : 'Xóa'}</button>
+                <select
+                  value={task.status}
+                  onChange={e => updateStatus(task.id, e.target.value as any)}
+                  className={`text-[10px] font-bold border rounded-lg px-2 py-1 outline-none ${task.status === 'DONE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                    task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
+                    }`}
+                >
+                  <option value="TODO">TO DO</option>
+                  <option value="IN_PROGRESS">IN PROGRESS</option>
+                  <option value="DONE">DONE</option>
+                </select>
               </div>
-            </div>
-            <div className="pt-2 flex justify-between items-center">
-              <button onClick={() => handleEdit(task)} className="text-indigo-600 text-sm font-bold hover:underline">Sửa</button>
-              <button onClick={() => handleDelete(task.id)} disabled={deletingId === task.id} className="text-rose-600 text-sm font-bold hover:underline">{deletingId === task.id ? 'Đang xóa…' : 'Xóa'}</button>
-              <select
-                value={task.status}
-                onChange={e => updateStatus(task.id, e.target.value as any)}
-                className={`text-[10px] font-bold border rounded-lg px-2 py-1 outline-none ${task.status === 'DONE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                  task.status === 'IN_PROGRESS' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-600 border-slate-200'
-                  }`}
-              >
-                <option value="TODO">TO DO</option>
-                <option value="IN_PROGRESS">IN PROGRESS</option>
-                <option value="DONE">DONE</option>
-              </select>
             </div>
           </div>
         ))}
       </div>
 
-      {
-        showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <form onSubmit={handleSubmit} className="bg-white rounded-2xl w-full max-w-lg p-8 space-y-5 animate-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-bold text-slate-800">{editingTask ? 'Chỉnh sửa công việc' : 'Giao việc mới'}</h3>
-              <div className="space-y-4">
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <form onSubmit={handleSubmit} className="bg-white rounded-2xl w-full max-w-lg p-8 space-y-5 animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-slate-800">{editingTask ? 'Chỉnh sửa công việc' : 'Giao việc mới'}</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tiêu đề công việc</label>
+                <input required placeholder="Nhập tiêu đề..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả chi tiết</label>
+                <textarea placeholder="Mô tả công việc cần làm..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tiêu đề công việc</label>
-                  <input required placeholder="Nhập tiêu đề..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mô tả chi tiết</label>
-                  <textarea placeholder="Mô tả công việc cần làm..." className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Người thực hiện</label>
-                    <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.assigneeId} onChange={e => setFormData({ ...formData, assigneeId: e.target.value })}>
-                      <option value="">-- Chọn --</option>
-                      {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-indigo-600 uppercase mb-1">Hạn hoàn thành (Lịch)</label>
-                    <input type="date" required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
-                  </div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Người thực hiện</label>
+                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.assigneeId} onChange={e => setFormData({ ...formData, assigneeId: e.target.value })}>
+                    <option value="">-- Chọn --</option>
+                    {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Độ ưu tiên</label>
@@ -261,51 +237,53 @@ export const Tasks: React.FC = () => {
                     <option value="HIGH">Cao</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết Key Result (Bắt buộc)</label>
-                  <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.krId} onChange={e => setFormData({ ...formData, krId: e.target.value })}>
-                    <option value="">-- Mục tiêu OKR --</option>
-                    {okrs.map(o => o.keyResults && o.keyResults.map(kr => (
-                      <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
-                    )))}
-                    {myOkrs.length > 0 && (
-                      <>
-                        <optgroup label="---OKRs cá nhân---">
-                          {myOkrs.map(o => o.keyResults && o.keyResults.map(kr => (
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Liên kết Key Result (Bắt buộc)</label>
+                <select required className="w-full border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.krId} onChange={e => setFormData({ ...formData, krId: e.target.value })}>
+                  <option value="">-- Mục tiêu OKR --</option>
+                  {okrs.map(o => o.keyResults && o.keyResults.map(kr => (
+                    <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
+                  )))}
+                  {myOkrs.length > 0 && (
+                    <>
+                      <optgroup label="---OKRs cá nhân---">
+                        {myOkrs.map(o => o.keyResults && o.keyResults
+                          .filter(kr => !tasks.some(t => t.krId === (kr.id || kr._id)) || (kr.id || kr._id) === editingTask?.krId)
+                          .map(kr => (
                             <option key={kr.id || kr._id} value={kr.id || kr._id}>{o.title}: {kr.title}</option>
                           )))}
-                        </optgroup>
-                      </>
-                    )}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-indigo-500 uppercase mb-1">Đóng góp cho KPI nào? (Tùy chọn)</label>
-                  <select className="w-full border border-indigo-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-indigo-50/30" value={formData.kpiId} onChange={e => setFormData({ ...formData, kpiId: e.target.value })}>
-                    <option value="">-- Không liên kết KPI --</option>
-                    {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).length > 0 && (
-                      <optgroup label="KPI Cá nhân">
-                        {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).map(k => (
-                          <option key={k.id || k._id} value={k.id || k._id}>{k.title}</option>
-                        ))}
                       </optgroup>
-                    )}
-                    <optgroup label="KPI Phòng ban">
-                      {kpis.filter(k => k.type === 'DEPARTMENT').map(k => (
+                    </>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-indigo-500 uppercase mb-1">Đóng góp cho KPI nào? (Tùy chọn)</label>
+                <select className="w-full border border-indigo-100 p-3 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-indigo-50/30" value={formData.kpiId} onChange={e => setFormData({ ...formData, kpiId: e.target.value })}>
+                  <option value="">-- Không liên kết KPI --</option>
+                  {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).length > 0 && (
+                    <optgroup label="KPI Cá nhân">
+                      {kpis.filter(k => k.type === 'PERSONAL' && (formData.assigneeId ? k.assignedTo === formData.assigneeId : true)).map(k => (
                         <option key={k.id || k._id} value={k.id || k._id}>{k.title}</option>
                       ))}
                     </optgroup>
-                  </select>
-                </div>
+                  )}
+                  <optgroup label="KPI Phòng ban">
+                    {kpis.filter(k => k.type === 'DEPARTMENT').map(k => (
+                      <option key={k.id || k._id} value={k.id || k._id}>{k.title}</option>
+                    ))}
+                  </optgroup>
+                </select>
               </div>
-              <div className="flex justify-end space-x-3 pt-4 border-t">
-                <button type="button" onClick={() => { setShowModal(false); setEditingTask(null); setFormData({ title: '', description: '', assigneeId: '', krId: '', dueDate: '', priority: 'MEDIUM' }); }} className="px-6 py-2 text-slate-500 font-bold">Hủy</button>
-                <button type="submit" className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">{editingTask ? 'Lưu thay đổi' : 'Giao việc'}</button>
-              </div>
-            </form>
-          </div>
-        )
-      }
-    </div >
+            </div>
+            <div className="flex justify-end space-x-3 pt-4 border-t">
+              <button type="button" onClick={() => { setShowModal(false); setEditingTask(null); setFormData({ title: '', description: '', assigneeId: '', krId: '', dueDate: '', priority: 'MEDIUM' }); }} className="px-6 py-2 text-slate-500 font-bold">Hủy</button>
+              <button type="submit" className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">{editingTask ? 'Lưu thay đổi' : 'Giao việc'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   );
 };

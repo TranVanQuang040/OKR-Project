@@ -3,6 +3,8 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 
+import { safeStorage } from '../utils/storage';
+
 interface Props {
     okrId: string;
 }
@@ -15,7 +17,7 @@ export const ExpectedVsActualChart: React.FC<Props> = ({ okrId }) => {
         // Fetch data from new API
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('okr_auth_token');
+                const token = safeStorage.getItem('okr_auth_token');
                 const res = await fetch(`/api/analytics/progress-comparison/${okrId}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });

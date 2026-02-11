@@ -36,6 +36,7 @@ export const OKRs: React.FC = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [departments, setDepartments] = useState<any[]>([]);
   const [targetDepartment, setTargetDepartment] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const adaptOKR = (okr: any) => ({
     ...okr,
@@ -325,6 +326,66 @@ export const OKRs: React.FC = () => {
     }
   };
 
+  const duplicateOKR = (okr: Objective) => {
+    setNewObjective(okr.title + ' (Copy)');
+    setDescription(okr.description || '');
+    setOkrType(okr.type || 'DEPARTMENT');
+    setPriority(okr.priority || 'MEDIUM');
+    setParentId(okr.parentId || '');
+    setTags(okr.tags?.join(', ') || '');
+    setPendingKRs(okr.keyResults.map(kr => ({ ...kr, id: undefined, currentValue: 0, progress: 0 })));
+    setTargetDepartment(okr.department || '');
+    setWorkgroupId(okr.workgroupId || '');
+    setEditingOKRId(null); // Ensure it creates new
+    setShowModal(true);
+    setStatusMessage('Đã sao chép OKR, vui lòng kiểm tra và lưu lại');
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Bạn có chắc muốn xóa ${selectedIds.length} OKR đã chọn?`)) return;
+
+    setIsLoading(true);
+    try {
+      // Loop delete as API doesn't support bulk delete yet
+      for (const id of selectedIds) {
+        try {
+          // Check type to call correct service
+          const okr = okrs.find(o => o.id === id);
+          if (okr?.type === 'PERSONAL') {
+            await myOkrService.deleteMyOKR(id);
+          } else {
+            await okrService.deleteOKR(id);
+          }
+        } catch (e) {
+          console.error(`Failed to delete ${id}`, e);
+        }
+      }
+      setStatusMessage(`Đã xóa ${selectedIds.length} OKR`);
+      setSelectedIds([]);
+      await loadOKRs();
+    } catch (err) {
+      alert('Có lỗi xảy ra khi xóa nhiều mục');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === displayOkrs.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(displayOkrs.map(o => o.id));
+    }
+  };
+
   const displayOkrs = okrs.filter(o =>
     o.quarter === selectedPeriod.quarter && o.year === selectedPeriod.year &&
     (user?.role === 'ADMIN' || o.department === user?.department || o.ownerId === user?.id) &&
@@ -342,7 +403,14 @@ export const OKRs: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">OKR {selectedPeriod.quarter}/{selectedPeriod.year}</h2>
-        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 flex-wrap">
+          <button
+            onClick={toggleSelectAll}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedIds.length === displayOkrs.length && displayOkrs.length > 0 ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            {selectedIds.length === displayOkrs.length && displayOkrs.length > 0 ? 'Bỏ chọn' : 'Chọn tất cả'}
+          </button>
+          <div className="w-px bg-slate-300 mx-1 my-1"></div>
           <button onClick={() => setFilterType('ALL')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Tất cả</button>
           <button onClick={() => setFilterType('DEPARTMENT')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'DEPARTMENT' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Phòng ban</button>
           <button onClick={() => setFilterType('TEAM')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Nhóm</button>
@@ -359,8 +427,32 @@ export const OKRs: React.FC = () => {
           <option value="MEDIUM">Ưu tiên Trung bình</option>
           <option value="LOW">Ưu tiên Thấp</option>
         </select>
-        <button onClick={openNewModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tạo OKR mới</button>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => window.location.hash = '#/automation'}
+            className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-4 py-2 rounded-lg font-bold flex items-center hover:bg-indigo-100 transition-colors"
+          >
+            <span className="material-icons text-sm mr-2">smart_toy</span>
+            Tạo OKR tự động
+          </button>
+          <button onClick={openNewModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tạo OKR mới</button>
+        </div>
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between bg-red-50 border border-red-100 p-3 rounded-xl animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-red-600 ml-2">Đã chọn {selectedIds.length} OKR</span>
+          </div>
+          <button
+            onClick={handleBulkDelete}
+            className="bg-red-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:bg-red-600 transition-colors flex items-center"
+          >
+            <span className="material-icons text-sm mr-1">delete</span>
+            Xóa các mục đã chọn
+          </button>
+        </div>
+      )}
 
       {statusMessage && (
         <div className="p-3 bg-emerald-50 text-emerald-700 rounded-md">{statusMessage}</div>
@@ -378,33 +470,41 @@ export const OKRs: React.FC = () => {
           {displayOkrs.map(okr => (
             <div key={okr.id} className="bg-white p-6 rounded-2xl border border-slate-200 group relative shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between mb-4">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${okr.priority === 'HIGH' ? 'bg-red-100 text-red-600' :
-                      okr.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                      {okr.priority || 'MEDIUM'}
-                    </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${okr.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
-                      okr.status === 'PENDING_APPROVAL' ? 'bg-amber-100 text-amber-600' :
-                        okr.status === 'REJECTED' ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                      {okr.status === 'APPROVED' ? 'Đã duyệt' : okr.status === 'PENDING_APPROVAL' ? 'Chờ duyệt' : okr.status === 'REJECTED' ? 'Từ chối' : 'Nháp'}
-                    </span>
-                    <span className="text-xs font-bold text-indigo-600">{okr.ownerName} - {okr.department}</span>
-                    {okr.endDate && okr.status === 'APPROVED' && (
-                      <span className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                        <span className="material-icons text-xs mr-1">timer</span>
-                        Còn {getTimeRemaining(okr.endDate)}
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(okr.id)}
+                    onChange={() => toggleSelect(okr.id)}
+                    className="mt-1.5 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${okr.priority === 'HIGH' ? 'bg-red-100 text-red-600' :
+                        okr.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                        {okr.priority || 'MEDIUM'}
                       </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${okr.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
+                        okr.status === 'PENDING_APPROVAL' ? 'bg-amber-100 text-amber-600' :
+                          okr.status === 'REJECTED' ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                        {okr.status === 'APPROVED' ? 'Đã duyệt' : okr.status === 'PENDING_APPROVAL' ? 'Chờ duyệt' : okr.status === 'REJECTED' ? 'Từ chối' : 'Nháp'}
+                      </span>
+                      <span className="text-xs font-bold text-indigo-600">{okr.ownerName} - {okr.department}</span>
+                      {okr.endDate && okr.status === 'APPROVED' && (
+                        <span className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                          <span className="material-icons text-xs mr-1">timer</span>
+                          Còn {getTimeRemaining(okr.endDate)}
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-bold">{okr.title}</h3>
+                    {okr.tags && okr.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {okr.tags.map(t => <span key={t} className="text-[10px] bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded">#{t}</span>)}
+                      </div>
                     )}
                   </div>
-                  <h3 className="text-lg font-bold">{okr.title}</h3>
-                  {okr.tags && okr.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {okr.tags.map(t => <span key={t} className="text-[10px] bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded">#{t}</span>)}
-                    </div>
-                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="text-right w-24 mr-4">
@@ -419,6 +519,9 @@ export const OKRs: React.FC = () => {
                       </div>
                     )}
                     <div className="flex space-x-1">
+                      <button onClick={() => duplicateOKR(okr)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors" title="Tạo bản sao">
+                        <span className="material-icons text-lg">content_copy</span>
+                      </button>
                       <button onClick={() => openEditModal(okr)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors">
                         <span className="material-icons text-lg">edit</span>
                       </button>

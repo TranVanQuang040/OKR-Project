@@ -1,6 +1,7 @@
 import express from 'express';
 import Objective from '../models/Objective.js';
 import authMiddleware from '../middleware/auth.js';
+import { dashboardCache, heatmapCache, clearCacheByPattern } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -62,6 +63,8 @@ router.post('/', authMiddleware, async (req, res) => {
   try {
     const payload = validateAndPrepareOKR(req.body);
     const okr = await Objective.create(payload);
+    clearCacheByPattern(dashboardCache, ''); // Clear all dashboard cache
+    clearCacheByPattern(heatmapCache, ''); // Clear all heatmap cache
     res.json(okr);
   } catch (err) {
     res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -100,6 +103,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
     okr.keyResults = payload.keyResults;
 
     await okr.save();
+    clearCacheByPattern(dashboardCache, '');
+    clearCacheByPattern(heatmapCache, '');
     res.json(okr);
   } catch (err) {
     res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -108,6 +113,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
 router.delete('/:id', authMiddleware, async (req, res) => {
   await Objective.findByIdAndDelete(req.params.id);
+  clearCacheByPattern(dashboardCache, '');
+  clearCacheByPattern(heatmapCache, '');
   res.json({ message: 'Deleted' });
 });
 
@@ -117,6 +124,8 @@ router.patch('/:id/status', authMiddleware, async (req, res) => {
   if (!status) return res.status(400).json({ message: 'Missing status' });
   const okr = await Objective.findByIdAndUpdate(req.params.id, { status }, { new: true });
   if (!okr) return res.status(404).json({ message: 'Not found' });
+  clearCacheByPattern(dashboardCache, '');
+  clearCacheByPattern(heatmapCache, '');
   res.json(okr);
 });
 
@@ -129,6 +138,7 @@ router.post('/:id/keyresults', authMiddleware, async (req, res) => {
   const kr = { title, targetValue, unit, currentValue: 0, progress: 0 };
   okr.keyResults.push(kr);
   await okr.save();
+  clearCacheByPattern(dashboardCache, '');
   res.json(okr);
 });
 
@@ -143,6 +153,7 @@ router.put('/:id/keyresults/:krId', authMiddleware, async (req, res) => {
   if (unit) kr.unit = unit;
   if (currentValue != null) kr.currentValue = currentValue;
   await okr.save();
+  clearCacheByPattern(dashboardCache, '');
   res.json(okr);
 });
 
@@ -151,6 +162,7 @@ router.delete('/:id/keyresults/:krId', authMiddleware, async (req, res) => {
   if (!okr) return res.status(404).json({ message: 'Not found' });
   okr.keyResults.id(req.params.krId).remove();
   await okr.save();
+  clearCacheByPattern(dashboardCache, '');
   res.json(okr);
 });
 

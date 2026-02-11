@@ -1,3 +1,4 @@
+
 import express from 'express';
 import Task from '../models/Task.js';
 import Objective from '../models/Objective.js';
@@ -5,6 +6,7 @@ import MyObjective from '../models/MyObjective.js';
 import KPI from '../models/KPI.js';
 import authMiddleware from '../middleware/auth.js';
 import mongoose from 'mongoose';
+import { dashboardCache, heatmapCache, clearCacheByPattern } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -95,6 +97,8 @@ router.post('/', authMiddleware, async (req, res) => {
     // recalc if krId present
     if (task.krId) await recalcKRProgress(task.krId);
     if (task.id) await syncLinkedKPIs(task.id);
+    clearCacheByPattern(dashboardCache, '');
+    clearCacheByPattern(heatmapCache, '');
     res.json(task);
   } catch (err) {
     res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -112,6 +116,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
   if (!task) return res.status(404).json({ message: 'Not found' });
   if (task.krId) await recalcKRProgress(task.krId);
   await syncLinkedKPIs(task.id);
+  clearCacheByPattern(dashboardCache, '');
+  clearCacheByPattern(heatmapCache, '');
   res.json(task);
 });
 
@@ -122,6 +128,8 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   // If task is deleted, maybe set linked KPI progress to 0 or leave as is? 
   // For safety, let's sync if there are still KPIs.
   await syncLinkedKPIs(req.params.id);
+  clearCacheByPattern(dashboardCache, '');
+  clearCacheByPattern(heatmapCache, '');
   res.json({ message: 'Deleted' });
 });
 
@@ -134,6 +142,8 @@ router.patch('/:id/status', authMiddleware, async (req, res) => {
   await task.save();
   if (task.krId) await recalcKRProgress(task.krId);
   await syncLinkedKPIs(task.id);
+  clearCacheByPattern(dashboardCache, '');
+  clearCacheByPattern(heatmapCache, '');
   res.json(task);
 });
 

@@ -22,6 +22,7 @@ export const DepartmentKPIs: React.FC = () => {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [filterPriority, setFilterPriority] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
     const [filterType, setFilterType] = useState<'ALL' | 'PERSONAL' | 'DEPARTMENT' | 'TEAM'>('ALL');
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
     const [departments, setDepartments] = useState<any[]>([]);
     const [selectedDept, setSelectedDept] = useState(user?.department || '');
@@ -177,6 +178,54 @@ export const DepartmentKPIs: React.FC = () => {
         }
     };
 
+    const handleBulkDelete = async () => {
+        if (selectedIds.length === 0) return;
+        if (!confirm(`Bạn có chắc muốn xóa ${selectedIds.length} KPI đã chọn?`)) return;
+
+        setIsLoading(true);
+        try {
+            for (const id of selectedIds) {
+                try {
+                    await deleteKPI(id);
+                } catch (e) {
+                    console.error(`Failed to delete ${id}`, e);
+                }
+            }
+            setStatusMessage(`Đã xóa ${selectedIds.length} KPI`);
+            setSelectedIds([]);
+            await loadKPIs();
+        } catch (err) {
+            alert('Có lỗi xảy ra khi xóa nhiều mục');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const duplicateKPI = (kpi: KPI) => {
+        setForm({
+            title: kpi.title + ' (Copy)',
+            description: kpi.description || '',
+            type: kpi.type as any,
+            department: kpi.department || '',
+            assignedTo: kpi.assignedTo || '',
+            workgroupId: kpi.workgroupId || '',
+            linkedOKRId: '', // Reset links for copy
+            linkedKRId: '',
+            endDate: kpi.endDate ? new Date(kpi.endDate).toISOString().split('T')[0] : '',
+            weight: kpi.weight || 1
+        });
+        setEditingKPI(null); // Create new
+        setShowModal(true);
+        setStatusMessage('Đã sao chép KPI, vui lòng kiểm tra và lưu lại');
+        setTimeout(() => setStatusMessage(''), 3000);
+    };
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
     const handleUpdateProgress = async (id: string, progress: number) => {
         try {
             const updated = await updateKPIProgress(id, progress);
@@ -276,6 +325,27 @@ export const DepartmentKPIs: React.FC = () => {
         return { label: 'Thấp (Low)', color: 'bg-slate-100 text-slate-600' };
     };
 
+    const filteredKpis = kpis.filter(k => {
+        // Type filter
+        if (filterType !== 'ALL' && k.type !== filterType) return false;
+
+        // Priority/Weight filter
+        if (filterPriority === 'ALL') return true;
+        const weight = (k as any).weight || 1;
+        if (filterPriority === 'HIGH') return weight >= 7;
+        if (filterPriority === 'MEDIUM') return weight >= 4 && weight < 7;
+        if (filterPriority === 'LOW') return weight < 4;
+        return true;
+    });
+
+    const toggleSelectAll = () => {
+        if (selectedIds.length === filteredKpis.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(filteredKpis.map(k => k.id));
+        }
+    };
+
     return (
         <div className="space-y-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -303,6 +373,13 @@ export const DepartmentKPIs: React.FC = () => {
 
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+                        <button
+                            onClick={toggleSelectAll}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedIds.length === filteredKpis.length && filteredKpis.length > 0 ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {selectedIds.length === filteredKpis.length && filteredKpis.length > 0 ? 'Bỏ chọn' : 'Chọn tất cả'}
+                        </button>
+                        <div className="w-px bg-slate-300 mx-1 my-1"></div>
                         <button
                             onClick={() => setFilterType('ALL')}
                             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === 'ALL' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -354,6 +431,21 @@ export const DepartmentKPIs: React.FC = () => {
                 </div>
             </div>
 
+            {selectedIds.length > 0 && (
+                <div className="flex items-center justify-between bg-red-50 border border-red-100 p-3 rounded-xl animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center space-x-2">
+                        <span className="font-bold text-red-600 ml-2">Đã chọn {selectedIds.length} KPI</span>
+                    </div>
+                    <button
+                        onClick={handleBulkDelete}
+                        className="bg-red-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:bg-red-600 transition-colors flex items-center"
+                    >
+                        <span className="material-icons text-sm mr-1">delete</span>
+                        Xóa các mục đã chọn
+                    </button>
+                </div>
+            )}
+
             {statusMessage && (
                 <div className="p-3 bg-emerald-50 text-emerald-700 rounded-md">{statusMessage}</div>
             )}
@@ -368,19 +460,7 @@ export const DepartmentKPIs: React.FC = () => {
                         </div>
                     )}
 
-                    {kpis
-                        .filter(k => {
-                            // Type filter
-                            if (filterType !== 'ALL' && k.type !== filterType) return false;
-
-                            // Priority/Weight filter
-                            if (filterPriority === 'ALL') return true;
-                            const weight = (k as any).weight || 1;
-                            if (filterPriority === 'HIGH') return weight >= 7;
-                            if (filterPriority === 'MEDIUM') return weight >= 4 && weight < 7;
-                            if (filterPriority === 'LOW') return weight < 4;
-                            return true;
-                        })
+                    {filteredKpis
                         .map(kpi => {
                             const prio = getPriorityLabel((kpi as any).weight || 1);
                             const timeRem = getTimeRemaining(kpi.endDate);
@@ -388,27 +468,36 @@ export const DepartmentKPIs: React.FC = () => {
                                 <div key={kpi.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow group">
                                     <div className="p-6">
                                         <div className="flex justify-between items-start mb-4">
-                                            <div className="flex-1">
-                                                <div className="flex items-center space-x-2 mb-1">
-                                                    <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${prio.color}`}>
-                                                        {prio.label}
-                                                    </span>
-                                                    <span className="text-[8px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-black uppercase">
-                                                        {kpi.type}
-                                                    </span>
-                                                    {kpi.type === 'DEPARTMENT' && (
-                                                        <span className="text-[8px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-black uppercase">
-                                                            Phòng: {kpi.department}
+                                            <div className="flex items-start gap-3 flex-1">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.includes(kpi.id)}
+                                                    onChange={() => toggleSelect(kpi.id)}
+                                                    className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="flex items-center space-x-2 mb-1">
+                                                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${prio.color}`}>
+                                                            {prio.label}
                                                         </span>
+                                                        <span className="text-[8px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-black uppercase">
+                                                            {kpi.type}
+                                                        </span>
+                                                        {kpi.type === 'DEPARTMENT' && (
+                                                            <span className="text-[8px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-black uppercase">
+                                                                Phòng: {kpi.department}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h3 className="text-lg font-bold text-slate-800 mb-1">{kpi.title}</h3>
+                                                    <p className="text-[10px] text-slate-400 font-bold mb-2">
+                                                        {kpi.type === 'PERSONAL' ? `Nhân sự: ${kpi.assignedToName}` : (kpi.type === 'TEAM' ? `Nhóm: ${workgroups.find(w => w.id === kpi.workgroupId || w._id === kpi.workgroupId)?.name || 'Team'}` : `Phòng ban: ${kpi.department}`)}
+                                                    </p>
+                                                    {kpi.description && (
+                                                        <p className="text-xs text-slate-500 mb-2 line-clamp-2">{kpi.description}</p>
                                                     )}
+
                                                 </div>
-                                                <h3 className="text-lg font-bold text-slate-800 mb-1">{kpi.title}</h3>
-                                                <p className="text-[10px] text-slate-400 font-bold mb-2">
-                                                    {kpi.type === 'PERSONAL' ? `Nhân sự: ${kpi.assignedToName}` : (kpi.type === 'TEAM' ? `Nhóm: ${workgroups.find(w => w.id === kpi.workgroupId || w._id === kpi.workgroupId)?.name || 'Team'}` : `Phòng ban: ${kpi.department}`)}
-                                                </p>
-                                                {kpi.description && (
-                                                    <p className="text-xs text-slate-500 mb-2 line-clamp-2">{kpi.description}</p>
-                                                )}
                                             </div>
                                             <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase tracking-widest border ${getStatusColor(kpi.status)}`}>
                                                 {kpi.status === 'ACTIVE' ? 'Đang chạy' : kpi.status === 'COMPLETED' ? 'Xong' : kpi.status}
@@ -453,6 +542,9 @@ export const DepartmentKPIs: React.FC = () => {
 
                                     <div className="bg-slate-50 px-6 py-4 flex justify-between items-center border-t border-slate-100">
                                         <div className="flex items-center space-x-3">
+                                            <button onClick={() => duplicateKPI(kpi)} className="text-slate-400 hover:text-indigo-600 transition-colors" title="Tạo bản sao">
+                                                <span className="material-icons text-lg">content_copy</span>
+                                            </button>
                                             <button onClick={() => openEditModal(kpi)} className="text-indigo-600 text-[10px] font-black hover:underline uppercase">Cập nhật</button>
                                             <button
                                                 onClick={() => handleMarkAsCompleted(kpi)}

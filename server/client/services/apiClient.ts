@@ -1,9 +1,11 @@
+import { safeStorage } from '../utils/storage';
+
 export async function apiRequest(path: string, options: RequestInit = {}) {
   const base = '/api';
   const headers = new Headers(options.headers || {});
 
   // Attach token if present
-  const token = localStorage.getItem('okr_auth_token');
+  const token = safeStorage.getItem('okr_auth_token');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (!headers.has('Content-Type') && !(options && options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
@@ -12,8 +14,8 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
   const res = await fetch(base + path, { ...options, headers });
 
   if (res.status === 401) {
-    localStorage.removeItem('okr_auth_token');
-    localStorage.removeItem('okr_session_user');
+    safeStorage.removeItem('okr_auth_token');
+    safeStorage.removeItem('okr_session_user');
     window.location.href = '/login';
     return;
   }

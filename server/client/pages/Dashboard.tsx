@@ -10,6 +10,7 @@ import { InsightCard } from '../components/InsightCard'; // New
 import { dataService } from '../services/dataService';
 import { taskService } from '../services/taskService';
 import { getDepartments } from '../services/departmentService';
+import { safeStorage } from '../utils/storage';
 
 // Component con hiển thị Task cá nhân
 const PersonalTasksWidget = ({ tasks }: { tasks: any[] }) => {
@@ -86,7 +87,7 @@ export const Dashboard: React.FC = () => {
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('okr_auth_token');
+      const token = safeStorage.getItem('okr_auth_token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
       const [healthRes, atRiskRes, deptStatsRes] = await Promise.all([
@@ -97,10 +98,10 @@ export const Dashboard: React.FC = () => {
 
       const healthIdx = await healthRes.json();
       const atRiskList = await atRiskRes.json();
-      const realDeptStats = await deptStatsRes.json();
+      const deptData = await deptStatsRes.json();
+      const departmentsArray = Array.isArray(deptData) ? deptData : (deptData.departments || []);
 
-      // Use Real Data directly
-      const deptMap = realDeptStats.map((d: any) => ({
+      const deptMap = departmentsArray.map((d: any) => ({
         name: d.name,
         progress: d.progress,
         healthScore: d.healthScore
@@ -178,7 +179,31 @@ export const Dashboard: React.FC = () => {
         <TaskStatisticsSection tasks={legacyData.tasks} />
 
         {/* BLOCK 4: INSIGHT & EXPLANATIONS (Pinned Last) */}
-        <InsightCard definitions={analyticsData.definitions} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <InsightCard definitions={analyticsData.definitions} />
+          </div>
+          <div className="lg:col-span-1">
+            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-6 rounded-[2rem] border border-indigo-200">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="p-2 bg-indigo-600 rounded-lg shadow-sm">
+                  <span className="material-icons text-white">auto_awesome</span>
+                </div>
+                <h3 className="text-lg font-black text-indigo-900">Tính năng thông minh</h3>
+              </div>
+              <p className="text-xs text-indigo-700 font-medium mb-6 leading-relaxed">
+                Chu kỳ mới sắp bắt đầu! Hãy sử dụng tính năng **Tự động hóa OKR** để nhanh chóng thiết lập mục tiêu từ kho mẫu chuyên nghiệp và tự động cascade xuống các phòng ban.
+              </p>
+              <button
+                onClick={() => window.location.hash = '#/automation'}
+                className="w-full bg-indigo-600 text-white font-bold py-3 rounded-2xl text-sm shadow-md hover:bg-indigo-700 transition-all flex items-center justify-center space-x-2"
+              >
+                <span>Bắt đầu tạo ngay</span>
+                <span className="material-icons text-sm">arrow_forward</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

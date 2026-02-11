@@ -1,5 +1,6 @@
 import { Objective, Task, User } from '../types';
 import { apiRequest } from './apiClient';
+import { safeStorage } from '../utils/storage';
 
 const STORAGE_KEYS = {
   OKRS: 'okr_pro_data_okrs',
@@ -42,12 +43,12 @@ export const dataService = {
     try {
       const users = await apiRequest('/users', { method: 'GET' });
       const norm = (users || []).map(normalizeId);
-      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(norm)); } catch (e) { }
+      safeStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(norm));
       return norm;
     } catch (err) {
-      const data = localStorage.getItem(STORAGE_KEYS.USERS);
+      const data = safeStorage.getItem(STORAGE_KEYS.USERS);
       if (!data) {
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
+        safeStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
         return INITIAL_USERS;
       }
       return JSON.parse(data);
@@ -92,7 +93,7 @@ export const dataService = {
         users.push(newUser);
       }
 
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+      safeStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
       return isUpdate ? user : users[users.length - 1];
     }
   },
@@ -109,7 +110,7 @@ export const dataService = {
       console.warn("API Error, deleting locally", err);
       const users = await dataService.getUsers();
       const newUsers = users.filter((u: User) => u.id !== id);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newUsers));
+      safeStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newUsers));
       return newUsers;
     }
   },
@@ -125,7 +126,7 @@ export const dataService = {
       const idx = users.findIndex(u => u.id === id);
       if (idx !== -1) {
         users[idx].avatar = avatar;
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+        safeStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
         return users[idx];
       }
       throw err;
@@ -138,7 +139,7 @@ export const dataService = {
       const okrs = await apiRequest('/okrs', { method: 'GET' });
       return (okrs || []).map(normalizeId);
     } catch (err) {
-      const data = localStorage.getItem(STORAGE_KEYS.OKRS);
+      const data = safeStorage.getItem(STORAGE_KEYS.OKRS);
       return data ? JSON.parse(data) : [];
     }
   },
@@ -166,7 +167,7 @@ export const dataService = {
           progress: 0
         });
       }
-      localStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
+      safeStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
       return okrs;
     }
   },
@@ -178,7 +179,7 @@ export const dataService = {
       if (err.status === 401 || err.status === 403) throw err;
 
       const okrs = (await dataService.getOKRs()).filter((o: Objective) => o.id !== id);
-      localStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
+      safeStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
       return okrs;
     }
   },
@@ -189,7 +190,7 @@ export const dataService = {
       const tasks = await apiRequest('/tasks', { method: 'GET' });
       return (tasks || []).map(normalizeId);
     } catch (err) {
-      const data = localStorage.getItem(STORAGE_KEYS.TASKS);
+      const data = safeStorage.getItem(STORAGE_KEYS.TASKS);
       return data ? JSON.parse(data) : [];
     }
   },
@@ -204,7 +205,7 @@ export const dataService = {
       const tasks = await dataService.getTasks();
       const newTask = { ...task, id: `task-${Date.now()}`, status: 'TODO' } as Task;
       tasks.unshift(newTask);
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      safeStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
       return newTask;
     }
   },
@@ -220,7 +221,7 @@ export const dataService = {
       const index = tasks.findIndex(t => t.id === id);
       if (index !== -1) {
         tasks[index].status = status;
-        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+        safeStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
         dataService.syncOKRProgress(tasks[index].krId);
         return tasks[index];
       }
@@ -239,7 +240,7 @@ export const dataService = {
       const index = tasks.findIndex(t => t.id === id);
       if (index !== -1) {
         tasks[index] = { ...tasks[index], ...task };
-        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+        safeStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
         dataService.syncOKRProgress(tasks[index].krId);
         return tasks[index];
       }
@@ -256,7 +257,7 @@ export const dataService = {
 
       const tasks = await dataService.getTasks();
       const filtered = tasks.filter(t => t.id !== id);
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(filtered));
+      safeStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(filtered));
       return true;
     }
   },
@@ -283,7 +284,7 @@ export const dataService = {
           okr.progress = okr.keyResults.length ? Math.round(total / okr.keyResults.length) : 0;
         }
       });
-      localStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
+      safeStorage.setItem(STORAGE_KEYS.OKRS, JSON.stringify(okrs));
     }
   },
 

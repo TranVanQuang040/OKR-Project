@@ -15,6 +15,7 @@ import { MyOKRs } from './pages/MyOKRs';
 import { DepartmentKPIs } from './pages/DepartmentKPIs';
 import { PersonalKPIs } from './pages/PersonalKPIs';
 import { Workgroups } from './pages/Workgroups';
+import OKRAutomation from './pages/OKRAutomation';
 
 const App: React.FC = () => {
   return (
@@ -74,6 +75,11 @@ const App: React.FC = () => {
           <Route path="/kpis/personal" element={
             <ProtectedRoute>
               <Layout><PersonalKPIs /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/automation" element={
+            <ProtectedRoute>
+              <Layout><OKRAutomation /></Layout>
             </ProtectedRoute>
           } />
 

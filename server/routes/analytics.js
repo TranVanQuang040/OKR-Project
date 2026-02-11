@@ -1,11 +1,10 @@
 import express from 'express';
 import Objective from '../models/Objective.js';
-import KeyResult from '../models/KPI.js'; // Note: In current project structure, KR might be embedded or separate. Checking schemas...
-// Correction: KeyResults are embedded in ObjectiveSchema. KeyResultSchema is not exported separately as a model in Objective.js. 
-// However, there is a 'KPI.js' model which is different. We should focus on Objective.keyResults.
+import KeyResult from '../models/KPI.js';
 import Blocker from '../models/Blocker.js';
 import CheckInHistory from '../models/CheckInHistory.js';
 import authMiddleware from '../middleware/auth.js';
+import { dashboardCache, heatmapCache, generateCacheKey } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -28,6 +27,13 @@ const calculateExpectedProgress = (startDate, endDate) => {
 router.get('/health-score', authMiddleware, async (req, res) => {
     try {
         const { role, id: userId, department } = req.user;
+        const cacheKey = generateCacheKey('health-score', { role, userId, department });
+
+        const cachedData = dashboardCache.get(cacheKey);
+        if (cachedData) {
+            return res.json({ ...cachedData, _meta: { cached: true, source: 'cache' } });
+        }
+
         let query = {};
 
         // BE-05: Filter by role
@@ -59,12 +65,9 @@ router.get('/health-score', authMiddleware, async (req, res) => {
         const blockerRate = blockers.length > 0 ? (resolvedBlockers / blockers.length) * 100 : 100; // No blockers = 100% good
 
         // 4. Check-in Timeliness (20%) - Last 14 days
-        // This is expensive, so we approximate or skip for MVP V1 if slow.
-        // Let's do a quick count of recent CheckInHistory
         const twoWeeksAgo = new Date();
         twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
-        // Count distinct objectives that have check-ins in last 14 days
         const recentCheckins = await CheckInHistory.distinct('objectiveId', {
             objectiveId: { $in: okrs.map(o => o._id) },
             checkinDate: { $gte: twoWeeksAgo }
@@ -79,10 +82,17 @@ router.get('/health-score', authMiddleware, async (req, res) => {
             (checkinRate * 0.2)
         );
 
-        res.json({
+        const result = {
             score,
             components: { avgProgress, onTrackRate, blockerRate, checkinRate },
             okrCount: okrs.length
+        };
+
+        dashboardCache.set(cacheKey, result);
+
+        res.json({
+            ...result,
+            _meta: { cached: false, source: 'database' }
         });
 
     } catch (err) {
@@ -201,6 +211,12 @@ router.get('/alignment', authMiddleware, async (req, res) => {
 // BE-06: Department Analytics (Real Data for Heatmap)
 router.get('/department-stats', authMiddleware, async (req, res) => {
     try {
+        const cacheKey = generateCacheKey('department-stats', { role: req.user.role, dept: req.user.department });
+        const cachedData = heatmapCache.get(cacheKey);
+        if (cachedData) {
+            return res.json({ departments: cachedData, _meta: { cached: true, source: 'cache' } });
+        }
+
         const okrs = await Objective.find({});
         const blockers = await Blocker.find({ status: 'OPEN' });
 
@@ -218,8 +234,6 @@ router.get('/department-stats', authMiddleware, async (req, res) => {
 
         // Count blockers per department
         blockers.forEach(b => {
-            // Find OKR to get dept (Inefficient loop but works for small scale)
-            // Ideally Blocker should have department field or we assume from OKR
             const okr = okrs.find(o => o._id.toString() === b.objectiveId.toString());
             if (okr && okr.department) {
                 if (deptMap[okr.department]) {
@@ -247,10 +261,74 @@ router.get('/department-stats', authMiddleware, async (req, res) => {
             };
         });
 
-        res.json(results);
+        heatmapCache.set(cacheKey, results);
+
+        res.json({
+            departments: results,
+            _meta: { cached: false, source: 'database' }
+        });
     } catch (err) {
         console.error("Dept Stats Error", err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// BE-06: Department Analytics (Real Data for Heatmap)
+// ... already updated ...
+
+// BE-07: Clear Cache (Admin only)
+router.post('/cache/clear', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'Admin only' });
+        }
+
+        const { type } = req.body; // 'dashboard', 'heatmap', 'all'
+
+        let cleared = 0;
+
+        if (type === 'dashboard' || type === 'all') {
+            cleared += dashboardCache.keys().length;
+            dashboardCache.flushAll();
+        }
+
+        if (type === 'heatmap' || type === 'all') {
+            cleared += heatmapCache.keys().length;
+            heatmapCache.flushAll();
+        }
+
+        res.json({
+            message: 'Cache cleared successfully',
+            clearedKeys: cleared
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: 'Error clearing cache', error: err.message });
+    }
+});
+
+// BE-08: Cache Stats (Admin only)
+router.get('/cache/stats', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'Admin only' });
+        }
+
+        const stats = {
+            dashboard: {
+                keys: dashboardCache.keys().length,
+                stats: dashboardCache.getStats()
+            },
+            heatmap: {
+                keys: heatmapCache.keys().length,
+                stats: heatmapCache.getStats()
+            }
+        };
+
+        res.json(stats);
+
+    } catch (err) {
+        res.status(500).json({ message: 'Error getting stats', error: err.message });
     }
 });
 

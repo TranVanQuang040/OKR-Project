@@ -5,6 +5,7 @@ import Objective from '../models/Objective.js';
 import MyObjective from '../models/MyObjective.js';
 import User from '../models/User.js';
 import authMiddleware from '../middleware/auth.js';
+import { dashboardCache, heatmapCache, clearCacheByPattern } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -116,6 +117,8 @@ router.post('/', authMiddleware, async (req, res) => {
         }
 
         const kpi = await KPI.create(req.body);
+        clearCacheByPattern(dashboardCache, ''); // Broad invalidation
+        clearCacheByPattern(heatmapCache, '');
         res.json(kpi);
     } catch (err) {
         res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -189,7 +192,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
         Object.assign(kpi, payload);
         await kpi.save();
-
+        clearCacheByPattern(dashboardCache, '');
+        clearCacheByPattern(heatmapCache, '');
         res.json(kpi);
     } catch (err) {
         res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -259,7 +263,8 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
                 console.error('Error updating linked OKR/KR:', okrErr);
             }
         }
-
+        clearCacheByPattern(dashboardCache, '');
+        clearCacheByPattern(heatmapCache, '');
         res.json(kpi);
     } catch (err) {
         res.status(400).json({ message: 'Invalid data', error: err.message });
@@ -281,6 +286,8 @@ router.delete('/:id', authMiddleware, async (req, res) => {
         }
 
         await KPI.findByIdAndDelete(req.params.id);
+        clearCacheByPattern(dashboardCache, '');
+        clearCacheByPattern(heatmapCache, '');
         res.json({ message: 'KPI deleted successfully' });
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });

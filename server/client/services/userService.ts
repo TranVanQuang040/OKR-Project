@@ -1,5 +1,6 @@
 import { User } from '../types';
 import { apiRequest } from './apiClient';
+import { safeStorage } from '../utils/storage';
 
 // Helper chuẩn hóa ID (đảm bảo luôn có field 'id')
 const normalizeId = (item: any) => {
@@ -19,7 +20,7 @@ export const userService = {
     } catch (err) {
       console.error('API error for users, falling back to local', err);
       try {
-        const data = localStorage.getItem('okr_pro_data_users');
+        const data = safeStorage.getItem('okr_pro_data_users');
         if (data) {
           const parsed = JSON.parse(data);
           return Array.isArray(parsed) ? parsed : [];
@@ -35,20 +36,20 @@ export const userService = {
   saveUser: async (user: Partial<User>) => {
     const isUpdate = !!user.id;
     let res;
-    
+
     // Nếu có ID -> Update, ngược lại -> Create
     if (isUpdate) {
-      res = await apiRequest(`/users/${user.id}`, { 
-        method: 'PUT', 
-        body: JSON.stringify(user) 
+      res = await apiRequest(`/users/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(user)
       });
     } else {
-      res = await apiRequest('/users', { 
-        method: 'POST', 
-        body: JSON.stringify(user) 
+      res = await apiRequest('/users', {
+        method: 'POST',
+        body: JSON.stringify(user)
       });
     }
-    
+
     return normalizeId(res);
   },
 
@@ -70,9 +71,9 @@ export const userService = {
   },
 
   updateAvatar: async (id: string, avatar: string) => {
-    const res = await apiRequest(`/users/${id}/avatar`, { 
-      method: 'PATCH', 
-      body: JSON.stringify({ avatar }) 
+    const res = await apiRequest(`/users/${id}/avatar`, {
+      method: 'PATCH',
+      body: JSON.stringify({ avatar })
     });
     return normalizeId(res);
   }

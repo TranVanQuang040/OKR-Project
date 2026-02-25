@@ -16,7 +16,7 @@ export const BlockerList: React.FC<Props> = ({ items = [] }) => {
             </h3>
 
             <div className="space-y-3">
-                {/* Demo items nếu chưa có real data đủ nhiều */}
+             
                 {items.length === 0 && (
                     <div className="text-center py-4 text-slate-400 text-xs font-bold">Không có blocker nghiêm trọng nào.</div>
                 )}

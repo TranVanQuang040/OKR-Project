@@ -15,7 +15,7 @@ const KeyResultSchema = new mongoose.Schema({
 const ObjectiveSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: String,
-  type: { type: String, enum: ['COMPANY', 'DEPARTMENT', 'TEAM', 'PERSONAL'], default: 'DEPARTMENT' },
+  type: { type: String, enum: ['COMPANY', 'DEPARTMENT', 'TEAM', 'PERSONAL'], default: 'PERSONAL' },
   parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Objective', default: null },
   workgroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Workgroup', default: null },
   priority: { type: String, enum: ['HIGH', 'MEDIUM', 'LOW'], default: 'MEDIUM' },
@@ -25,12 +25,41 @@ const ObjectiveSchema = new mongoose.Schema({
   department: String,
   quarter: String,
   year: Number,
-  status: { type: String, default: 'DRAFT' },
+  status: { type: String, enum: ['DRAFT', 'ACTIVE', 'COMPLETED', 'ARCHIVED', 'APPROVED', 'REJECTED', 'PENDING_APPROVAL'], default: 'DRAFT' },
   progress: { type: Number, default: 0 },
   keyResults: [KeyResultSchema],
   startDate: { type: Date },
   endDate: { type: Date },
   createdAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+
+// Auto-calculate progress before saving
+ObjectiveSchema.pre('save', function (next) {
+  if (this.keyResults && this.keyResults.length > 0) {
+    let totalWeight = 0;
+    let weightedProgress = 0;
+
+    this.keyResults.forEach(kr => {
+      // Calculate KR progress first if not set (for manual updates)
+      if (kr.targetValue > 0) {
+        kr.progress = Math.min(100, Math.round((kr.currentValue / kr.targetValue) * 100));
+      }
+
+      const weight = kr.weight || 1;
+      totalWeight += weight;
+      weightedProgress += (kr.progress || 0) * weight;
+    });
+
+    this.progress = totalWeight > 0 ? Math.round(weightedProgress / totalWeight) : 0;
+  }
+
+  // Auto-update status based on progress
+  if (this.progress >= 100 && (this.status === 'ACTIVE' || this.status === 'APPROVED')) {
+    this.status = 'COMPLETED';
+  }
+
+  next();
 });
 
 export default mongoose.model('Objective', ObjectiveSchema);
+

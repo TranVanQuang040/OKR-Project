@@ -11,7 +11,6 @@ import { clearCacheByPattern, dashboardCache, heatmapCache } from '../utils/cach
 
 import KPI from '../models/KPI.js';
 import Task from '../models/Task.js';
-import MyObjective from '../models/MyObjective.js';
 
 const router = express.Router();
 
@@ -25,9 +24,9 @@ router.post('/cleanup', authMiddleware, async (req, res) => {
         await Promise.all([
             Objective.deleteMany({}),
             KPI.deleteMany({}),
-            Task.deleteMany({}),
-            MyObjective.deleteMany({})
+            Task.deleteMany({})
         ]);
+
 
         clearCacheByPattern(dashboardCache, '');
         clearCacheByPattern(heatmapCache, '');

@@ -87,7 +87,16 @@ export const Tasks: React.FC = () => {
     const assignee = allUsers.find(u => u.id === formData.assigneeId);
     const krTitle = getKrTitle(formData.krId);
 
-    const payload = { ...formData, assigneeName: assignee?.name || 'Vô danh', krTitle };
+    const payload: any = {
+      ...formData,
+      assigneeName: assignee?.name || 'Vô danh',
+      krTitle
+    };
+
+    // Sanitize kpiId - if empty string, set to undefined so it's not sent or sent as null
+    if (!payload.kpiId || payload.kpiId === '') {
+      delete payload.kpiId;
+    }
 
     if (editingTask) {
       await dataService.updateTask(editingTask.id, payload);

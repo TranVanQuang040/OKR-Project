@@ -70,54 +70,60 @@ export async function generateCompanyOKRs({ quarter, year, templateIds, createdB
  * @returns {Promise<Array>} Created department OKRs
  */
 export async function cascadeToDepartments(companyOkrId) {
-    const companyOkr = await Objective.findById(companyOkrId);
-    if (!companyOkr || companyOkr.type !== 'COMPANY') {
-        throw new Error('Invalid company OKR');
+    const session = await Objective.startSession();
+    session.startTransaction();
+    try {
+        const companyOkr = await Objective.findById(companyOkrId).session(session);
+        if (!companyOkr || companyOkr.type !== 'COMPANY') {
+            throw new Error('Invalid company OKR');
+        }
+
+        const departments = await Department.find({}).session(session);
+        const createdOKRs = [];
+
+        for (const dept of departments) {
+            const deptHead = await User.findOne({ department: dept.name, role: 'MANAGER' }).session(session);
+            if (!deptHead) continue;
+
+            const keyResults = companyOkr.keyResults.map(kr => ({
+                title: kr.title,
+                unit: kr.unit,
+                targetValue: kr.targetValue, // 100% alignment by default
+                currentValue: 0,
+                source: 'MANUAL',
+                weight: kr.weight,
+                confidenceScore: 10
+            }));
+
+            const [deptOkr] = await Objective.create([{
+                title: `${dept.name}: ${companyOkr.title}`,
+                description: companyOkr.description,
+                type: 'DEPARTMENT',
+                parentId: companyOkr._id,
+                priority: companyOkr.priority,
+                tags: companyOkr.tags,
+                quarter: companyOkr.quarter,
+                year: companyOkr.year,
+                ownerId: deptHead._id.toString(),
+                ownerName: deptHead.name,
+                department: dept.name,
+                status: 'DRAFT',
+                keyResults,
+                startDate: companyOkr.startDate,
+                endDate: companyOkr.endDate
+            }], { session });
+
+            createdOKRs.push(deptOkr);
+        }
+
+        await session.commitTransaction();
+        return createdOKRs;
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
     }
-
-    // Get all departments
-    const departments = await Department.find({});
-    const createdOKRs = [];
-
-    for (const dept of departments) {
-        // Find department head
-        const deptHead = await User.findOne({ department: dept.name, role: 'MANAGER' });
-        if (!deptHead) continue;
-
-        // Create scaled-down version of company OKR for each department
-        const keyResults = companyOkr.keyResults.map(kr => ({
-            title: `${dept.name}: ${kr.title}`,
-            unit: kr.unit,
-            targetValue: Math.round(kr.targetValue * 0.7), // 70% of company target
-            currentValue: 0,
-            progress: 0,
-            source: 'MANUAL',
-            weight: kr.weight,
-            confidenceScore: 10
-        }));
-
-        const deptOkr = await Objective.create({
-            title: `${dept.name}: ${companyOkr.title}`,
-            description: companyOkr.description,
-            type: 'DEPARTMENT',
-            parentId: companyOkr._id,
-            priority: companyOkr.priority,
-            tags: companyOkr.tags,
-            quarter: companyOkr.quarter,
-            year: companyOkr.year,
-            ownerId: deptHead._id.toString(),
-            ownerName: deptHead.name,
-            department: dept.name,
-            status: 'DRAFT',
-            keyResults,
-            startDate: companyOkr.startDate,
-            endDate: companyOkr.endDate
-        });
-
-        createdOKRs.push(deptOkr);
-    }
-
-    return createdOKRs;
 }
 
 /**
@@ -126,57 +132,66 @@ export async function cascadeToDepartments(companyOkrId) {
  * @returns {Promise<Array>} Created team OKRs
  */
 export async function cascadeToTeams(deptOkrId) {
-    const deptOkr = await Objective.findById(deptOkrId);
-    if (!deptOkr || deptOkr.type !== 'DEPARTMENT') {
-        throw new Error('Invalid department OKR');
+    const session = await Objective.startSession();
+    session.startTransaction();
+    try {
+        const deptOkr = await Objective.findById(deptOkrId).session(session);
+        if (!deptOkr || deptOkr.type !== 'DEPARTMENT') {
+            throw new Error('Invalid department OKR');
+        }
+
+        const deptUsers = await User.find({ department: deptOkr.department }).session(session);
+        const userIds = deptUsers.map(u => u._id);
+        const workgroups = await Workgroup.find({ leaderId: { $in: userIds } }).session(session);
+
+        const createdOKRs = [];
+
+        for (const workgroup of workgroups) {
+            const leader = await User.findById(workgroup.leaderId).session(session);
+            if (!leader) continue;
+
+            const keyResults = deptOkr.keyResults.map(kr => ({
+                title: kr.title,
+                unit: kr.unit,
+                targetValue: kr.targetValue,
+                currentValue: 0,
+                source: 'MANUAL',
+                weight: kr.weight,
+                confidenceScore: 10
+            }));
+
+            const [teamOkr] = await Objective.create([{
+                title: `${workgroup.name}: ${deptOkr.title}`,
+                description: deptOkr.description,
+                type: 'TEAM',
+                parentId: deptOkr._id,
+                workgroupId: workgroup._id,
+                priority: deptOkr.priority,
+                tags: deptOkr.tags,
+                quarter: deptOkr.quarter,
+                year: deptOkr.year,
+                ownerId: leader._id.toString(),
+                ownerName: leader.name,
+                department: deptOkr.department,
+                status: 'DRAFT',
+                keyResults,
+                startDate: deptOkr.startDate,
+                endDate: deptOkr.endDate
+            }], { session });
+
+            createdOKRs.push(teamOkr);
+        }
+
+        await session.commitTransaction();
+        return createdOKRs;
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
     }
-
-    // Find workgroups in this department
-    const deptUsers = await User.find({ department: deptOkr.department });
-    const userIds = deptUsers.map(u => u._id);
-    const workgroups = await Workgroup.find({ leaderId: { $in: userIds } });
-
-    const createdOKRs = [];
-
-    for (const workgroup of workgroups) {
-        const leader = await User.findById(workgroup.leaderId);
-        if (!leader) continue;
-
-        const keyResults = deptOkr.keyResults.map(kr => ({
-            title: `${workgroup.name}: ${kr.title}`,
-            unit: kr.unit,
-            targetValue: Math.round(kr.targetValue * 0.6), // 60% of dept target
-            currentValue: 0,
-            progress: 0,
-            source: 'MANUAL',
-            weight: kr.weight,
-            confidenceScore: 10
-        }));
-
-        const teamOkr = await Objective.create({
-            title: `${workgroup.name}: ${deptOkr.title}`,
-            description: deptOkr.description,
-            type: 'TEAM',
-            parentId: deptOkr._id,
-            workgroupId: workgroup._id,
-            priority: deptOkr.priority,
-            tags: deptOkr.tags,
-            quarter: deptOkr.quarter,
-            year: deptOkr.year,
-            ownerId: leader._id.toString(),
-            ownerName: leader.name,
-            department: deptOkr.department,
-            status: 'DRAFT',
-            keyResults,
-            startDate: deptOkr.startDate,
-            endDate: deptOkr.endDate
-        });
-
-        createdOKRs.push(teamOkr);
-    }
-
-    return createdOKRs;
 }
+
 
 /**
  * Auto-align OKRs by finding best parent match

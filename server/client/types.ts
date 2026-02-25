@@ -130,3 +130,24 @@ export interface KPI {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface WorkSchedule {
+  _id?: string;
+  userId: string;
+  userName: string;
+  department: string;
+  dateKey: string;
+  shift: 'FULL_DAY' | 'HALF_DAY' | 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'OFF' | 'UNEXCUSED_ABSENCE' | 'ONLINE';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  note?: string;
+}
+
+export interface ScheduleSummary {
+  userId: string;
+  userName: string;
+  department: string;
+  plannedDays: number;
+  offDays: number;
+  workDays: number;
+  unexcusedAbsences: number;
+}

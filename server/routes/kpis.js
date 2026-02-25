@@ -2,7 +2,6 @@ import express from 'express';
 import mongoose from 'mongoose';
 import KPI from '../models/KPI.js';
 import Objective from '../models/Objective.js';
-import MyObjective from '../models/MyObjective.js';
 import User from '../models/User.js';
 import authMiddleware from '../middleware/auth.js';
 import { dashboardCache, heatmapCache, clearCacheByPattern } from '../utils/cache.js';
@@ -85,7 +84,7 @@ router.post('/', authMiddleware, async (req, res) => {
             req.body.assignedByName = req.user.name;
 
             // Get assignedToDepartment and department from the user being assigned
-            if (assignedTo) {
+            if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
                 const assignedUser = await User.findById(assignedTo);
                 if (assignedUser) {
                     req.body.assignedToDepartment = assignedUser.department;
@@ -98,9 +97,14 @@ router.post('/', authMiddleware, async (req, res) => {
             return res.status(400).json({ message: 'workgroupId is required for TEAM type' });
         }
 
+        // Sanitize IDs from empty strings
+        if (req.body.assignedTo === '') req.body.assignedTo = null;
+        if (req.body.workgroupId === '') req.body.workgroupId = null;
+        if (req.body.linkedOKRId === '') req.body.linkedOKRId = null;
+        if (req.body.linkedKRId === '') req.body.linkedKRId = null;
+
         if (req.body.linkedOKRId && mongoose.Types.ObjectId.isValid(req.body.linkedOKRId)) {
-            let okr = await Objective.findById(req.body.linkedOKRId);
-            if (!okr) okr = await MyObjective.findById(req.body.linkedOKRId);
+            const okr = await Objective.findById(req.body.linkedOKRId);
 
             if (okr) {
                 req.body.linkedOKRTitle = okr.title;
@@ -157,8 +161,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
         // Validate linked OKR if provided
         if (req.body.linkedOKRId && mongoose.Types.ObjectId.isValid(req.body.linkedOKRId)) {
-            let okr = await Objective.findById(req.body.linkedOKRId);
-            if (!okr) okr = await MyObjective.findById(req.body.linkedOKRId);
+            const okr = await Objective.findById(req.body.linkedOKRId);
 
             if (okr) {
                 req.body.linkedOKRTitle = okr.title;
@@ -177,8 +180,14 @@ router.put('/:id', authMiddleware, async (req, res) => {
             req.body.linkedKRTitle = '';
         }
 
+        // Sanitize IDs
+        if (req.body.assignedTo === '') req.body.assignedTo = null;
+        if (req.body.workgroupId === '') req.body.workgroupId = null;
+        if (req.body.linkedOKRId === '') req.body.linkedOKRId = null;
+        if (req.body.linkedKRId === '') req.body.linkedKRId = null;
+
         // Update assignedToDepartment if assignedTo is being changed
-        if (req.body.assignedTo && req.body.assignedTo !== kpi.assignedTo) {
+        if (req.body.assignedTo && req.body.assignedTo !== kpi.assignedTo && mongoose.Types.ObjectId.isValid(req.body.assignedTo)) {
             const assignedUser = await User.findById(req.body.assignedTo);
             if (assignedUser) {
                 req.body.assignedToDepartment = assignedUser.department;
@@ -220,43 +229,20 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
         // Auto-update linked OKR if exists
         if (kpi.linkedOKRId) {
             try {
-                // Try Objective (Dept OKR) first
-                let okr = await Objective.findById(kpi.linkedOKRId);
-                let isPersonal = false;
-                if (!okr) {
-                    okr = await MyObjective.findById(kpi.linkedOKRId);
-                    isPersonal = true;
-                }
-
+                const okr = await Objective.findById(kpi.linkedOKRId);
                 if (okr) {
                     if (kpi.linkedKRId) {
-                        // Find all KPIs linked to this specific Key Result
                         const linkedKPIs = await KPI.find({ linkedKRId: kpi.linkedKRId });
                         const totalProgress = linkedKPIs.reduce((sum, k) => sum + (k.progress || 0), 0);
-                        const avgProgress = linkedKPIs.length > 0
-                            ? Math.round(totalProgress / linkedKPIs.length)
-                            : 0;
+                        const avgProgress = linkedKPIs.length > 0 ? Math.round(totalProgress / linkedKPIs.length) : 0;
 
-                        // Find and update the specific Key Result
-                        const kr = okr.keyResults.id ? okr.keyResults.id(kpi.linkedKRId) : okr.keyResults.find(k => k._id.toString() === kpi.linkedKRId || k.id === kpi.linkedKRId);
+                        const kr = okr.keyResults.id(kpi.linkedKRId);
                         if (kr) {
                             kr.progress = avgProgress;
-                            // Also update currentValue as a percentage of targetValue
                             kr.currentValue = Math.round((avgProgress / 100) * kr.targetValue);
                         }
                     }
-
-                    // Recalculate overall OKR progress based on its Key Results
-                    if (okr.keyResults && okr.keyResults.length > 0) {
-                        const totalKRProgress = okr.keyResults.reduce((sum, kr) => sum + (kr.progress || 0), 0);
-                        okr.progress = Math.round(totalKRProgress / okr.keyResults.length);
-                    } else {
-                        // Fallback to average of all KPIs linked to this OKR if no KRs
-                        const allLinkedKPIs = await KPI.find({ linkedOKRId: kpi.linkedOKRId });
-                        const totalKpiProgress = allLinkedKPIs.reduce((sum, k) => sum + (k.progress || 0), 0);
-                        okr.progress = allLinkedKPIs.length > 0 ? Math.round(totalKpiProgress / allLinkedKPIs.length) : 0;
-                    }
-
+                    // Saving will trigger the unified progress calculation logic
                     await okr.save();
                 }
             } catch (okrErr) {

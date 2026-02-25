@@ -83,6 +83,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
           {user?.role !== 'EMPLOYEE' && <NavLink to="/users" icon="group">Thành viên</NavLink>}
           <NavLink to="/tasks" icon="assignment">Công việc</NavLink>
+          <NavLink to="/attendance" icon="fingerprint">Điểm danh</NavLink>
+          <NavLink to="/schedules" icon="event_note">Lịch làm việc</NavLink>
           <NavLink to="/automation" icon="smart_toy">Tự động hóa OKR</NavLink>
           <NavLink to="/reports" icon="analytics">Báo cáo</NavLink>
           <NavLink to="/teams" icon="corporate_fare">Phòng ban</NavLink>

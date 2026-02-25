@@ -31,3 +31,5 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
   }
   return body;
 }
+
+export default apiRequest;

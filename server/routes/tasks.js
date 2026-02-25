@@ -2,7 +2,6 @@
 import express from 'express';
 import Task from '../models/Task.js';
 import Objective from '../models/Objective.js';
-import MyObjective from '../models/MyObjective.js';
 import KPI from '../models/KPI.js';
 import authMiddleware from '../middleware/auth.js';
 import mongoose from 'mongoose';
@@ -13,32 +12,27 @@ const router = express.Router();
 async function recalcKRProgress(krId) {
   try {
     if (!krId || !mongoose.Types.ObjectId.isValid(krId)) return;
-    // Find objective that contains this KR in either Objective or MyObjective
-    let obj = await Objective.findOne({ 'keyResults._id': krId });
-    if (!obj) {
-      obj = await MyObjective.findOne({ 'keyResults._id': krId });
-    }
+    // Find objective that contains this KR
+    const obj = await Objective.findOne({ 'keyResults._id': krId });
     if (!obj) return;
+
     const kr = obj.keyResults.id(krId);
     if (!kr) return;
+
     // Count tasks for this KR
-    const TaskModel = Task;
-    const tasks = await TaskModel.find({ krId: krId });
+    const tasks = await Task.find({ krId: krId });
     const done = tasks.filter(t => t.status === 'DONE').length;
+
+    // Update KR progress based on tasks
     kr.progress = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : kr.progress;
-    // Recompute objective progress as weighted average
-    if (obj.keyResults.length > 0) {
-      const totalWeight = obj.keyResults.reduce((acc, k) => acc + (k.weight || 1), 0);
-      const weightedSum = obj.keyResults.reduce((acc, k) => acc + ((k.progress || 0) * (k.weight || 1)), 0);
-      obj.progress = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
-    } else {
-      obj.progress = 0;
-    }
+
+    // Save triggers Objective pre-save hook which recalculates overall progress
     await obj.save();
   } catch (err) {
     console.error('Error in recalcKRProgress:', err);
   }
 }
+
 
 async function syncLinkedKPIs(taskId) {
   try {
@@ -93,7 +87,11 @@ router.get('/', authMiddleware, async (req, res) => {
 
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const task = await Task.create(req.body);
+    const payload = { ...req.body };
+    if (payload.krId === '') payload.krId = null;
+    if (payload.kpiId === '') payload.kpiId = null;
+
+    const task = await Task.create(payload);
     // recalc if krId present
     if (task.krId) await recalcKRProgress(task.krId);
     if (task.id) await syncLinkedKPIs(task.id);
@@ -112,7 +110,11 @@ router.get('/:id', authMiddleware, async (req, res) => {
 });
 
 router.put('/:id', authMiddleware, async (req, res) => {
-  const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const payload = { ...req.body };
+  if (payload.krId === '') payload.krId = null;
+  if (payload.kpiId === '') payload.kpiId = null;
+
+  const task = await Task.findByIdAndUpdate(req.params.id, payload, { new: true });
   if (!task) return res.status(404).json({ message: 'Not found' });
   if (task.krId) await recalcKRProgress(task.krId);
   await syncLinkedKPIs(task.id);

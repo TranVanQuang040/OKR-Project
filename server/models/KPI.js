@@ -69,36 +69,25 @@ KPISchema.post('save', async function (doc) {
     if (doc.linkedOKRId) {
         try {
             const Objective = mongoose.model('Objective');
-            const MyObjective = mongoose.model('MyObjective');
-            const KPI = mongoose.model('KPI');
-
-            let okr = await Objective.findById(doc.linkedOKRId);
-            if (!okr) okr = await MyObjective.findById(doc.linkedOKRId);
+            const okr = await Objective.findById(doc.linkedOKRId);
 
             if (okr) {
                 if (doc.linkedKRId) {
-                    const linkedKPIs = await KPI.find({ linkedKRId: doc.linkedKRId });
-                    const totalWeight = linkedKPIs.reduce((sum, k) => sum + (k.weight || 1), 0);
-                    const weightedProgress = linkedKPIs.reduce((sum, k) => sum + ((k.progress || 0) * (k.weight || 1)), 0);
-                    const avgProgress = totalWeight > 0 ? Math.round(weightedProgress / totalWeight) : 0;
-
-                    const kr = okr.keyResults.id ? okr.keyResults.id(doc.linkedKRId) : okr.keyResults.find(k => k._id.toString() === doc.linkedKRId || k.id === doc.linkedKRId);
+                    const kr = okr.keyResults.id(doc.linkedKRId);
                     if (kr) {
-                        kr.progress = avgProgress;
-                        kr.currentValue = Math.round((avgProgress / 100) * (kr.targetValue || 100));
+                        // We find all KPIs linked to this specific KR to get an average or sum
+                        const KPI = mongoose.model('KPI');
+                        const linkedKPIs = await KPI.find({ linkedKRId: doc.linkedKRId });
+
+                        const totalWeight = linkedKPIs.reduce((sum, k) => sum + (k.weight || 1), 0);
+                        const weightedProgress = linkedKPIs.reduce((sum, k) => sum + ((k.progress || 0) * (k.weight || 1)), 0);
+
+                        kr.progress = totalWeight > 0 ? Math.round(weightedProgress / totalWeight) : 0;
+                        kr.currentValue = Math.round((kr.progress / 100) * (kr.targetValue || 100));
                     }
                 }
-
-                if (okr.keyResults && okr.keyResults.length > 0) {
-                    const totalWeight = okr.keyResults.reduce((sum, kr) => sum + (kr.weight || 1), 0);
-                    const weightedKRProgress = okr.keyResults.reduce((sum, kr) => sum + ((kr.progress || 0) * (kr.weight || 1)), 0);
-                    okr.progress = totalWeight > 0 ? Math.round(weightedKRProgress / totalWeight) : 0;
-                } else {
-                    const allLinkedKPIs = await KPI.find({ linkedOKRId: doc.linkedOKRId });
-                    const totalWeight = allLinkedKPIs.reduce((sum, k) => sum + (k.weight || 1), 0);
-                    const weightedKpiProgress = allLinkedKPIs.reduce((sum, k) => sum + ((k.progress || 0) * (k.weight || 1)), 0);
-                    okr.progress = totalWeight > 0 ? Math.round(weightedKpiProgress / totalWeight) : 0;
-                }
+                // Just calling .save() will trigger the Objective's pre-save 
+                // which recalculates the overall status and progress based on all KRs
                 await okr.save();
             }
         } catch (err) {
@@ -106,5 +95,6 @@ KPISchema.post('save', async function (doc) {
         }
     }
 });
+
 
 export default mongoose.model('KPI', KPISchema);

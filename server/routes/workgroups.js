@@ -19,7 +19,13 @@ router.get('/', authMiddleware, async (req, res) => {
 // Create a workgroup
 router.post('/', authMiddleware, async (req, res) => {
     try {
-        const workgroup = new Workgroup(req.body);
+        const payload = { ...req.body };
+        if (payload.leaderId === '') delete payload.leaderId;
+        if (Array.isArray(payload.members)) {
+            payload.members = payload.members.filter(m => m !== '');
+        }
+
+        const workgroup = new Workgroup(payload);
         const savedWorkgroup = await workgroup.save();
         const populatedWorkgroup = await Workgroup.findById(savedWorkgroup._id)
             .populate('leaderId', 'name role department')
@@ -33,7 +39,13 @@ router.post('/', authMiddleware, async (req, res) => {
 // Update a workgroup
 router.put('/:id', authMiddleware, async (req, res) => {
     try {
-        const updatedWorkgroup = await Workgroup.findByIdAndUpdate(req.params.id, req.body, { new: true })
+        const payload = { ...req.body };
+        if (payload.leaderId === '') delete payload.leaderId;
+        if (Array.isArray(payload.members)) {
+            payload.members = payload.members.filter(m => m !== '');
+        }
+
+        const updatedWorkgroup = await Workgroup.findByIdAndUpdate(req.params.id, payload, { new: true })
             .populate('leaderId', 'name role department')
             .populate('members', 'name role department');
         res.json(updatedWorkgroup);

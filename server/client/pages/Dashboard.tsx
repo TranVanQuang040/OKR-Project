@@ -291,9 +291,12 @@ export const Dashboard: React.FC = () => {
 
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-[2rem] text-white shadow-lg">
             <h3 className="font-bold text-lg mb-2">Check-in Reminder</h3>
-            <p className="text-indigo-100 text-xs mb-4">Đừng quên cập nhật tiến độ trước Thứ 6 nhé.</p>
-            <button className="w-full bg-white text-indigo-600 font-black py-2 rounded-xl text-sm shadow-sm hover:bg-slate-50 transition-colors">
-              Check-in Ngay
+            <p className="text-indigo-100 text-xs mb-4">Đừng quên điểm danh và cập nhật tiến độ nhé.</p>
+            <button
+              onClick={() => window.location.hash = '#/attendance'}
+              className="w-full bg-white text-indigo-600 font-black py-2 rounded-xl text-sm shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              Điểm danh Ngay
             </button>
           </div>
         </div>

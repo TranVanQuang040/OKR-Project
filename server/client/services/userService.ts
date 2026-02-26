@@ -62,8 +62,22 @@ export const userService = {
 
   // Wrapper cho code cũ: cập nhật user
   updateUser: async (id: string, user: Partial<User>) => {
-    // Đảm bảo id đúng
-    return userService.saveUser({ ...user, id });
+    // Tách password ra vì server PUT /:id không xử lý password
+    // Password phải được đổi qua endpoint riêng POST /:id/password
+    const { password, ...otherFields } = user;
+
+    // Cập nhật thông tin user (không bao gồm password)
+    const result = await userService.saveUser({ ...otherFields, id });
+
+    // Nếu có password mới, gọi endpoint đổi mật khẩu riêng
+    if (password && password.trim()) {
+      await apiRequest(`/users/${id}/password`, {
+        method: 'POST',
+        body: JSON.stringify({ password })
+      });
+    }
+
+    return result;
   },
 
   deleteUser: async (id: string) => {

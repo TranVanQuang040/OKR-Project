@@ -12,6 +12,13 @@ export interface AttendanceRecord {
     lateMinutes: number;
     totalWorkMinutes: number;
     note?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    networkInfo?: {
+        type?: string;
+        wifiName?: string;
+        effectiveType?: string;
+    };
 }
 
 export interface AttendanceStatus {
@@ -42,9 +49,27 @@ export const attendanceService = {
     },
 
     async checkIn(note?: string): Promise<AttendanceRecord> {
+        // Gather network info from browser
+        const networkInfo: any = {};
+        try {
+            const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+            if (conn) {
+                networkInfo.type = conn.type || '';
+                networkInfo.effectiveType = conn.effectiveType || '';
+            }
+        } catch (e) { /* ignore */ }
+
+        // Try to get public IP
+        let publicIp = '';
+        try {
+            const ipRes = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) });
+            const ipData = await ipRes.json();
+            publicIp = ipData.ip || '';
+        } catch (e) { /* ignore - don't block check-in */ }
+
         return apiRequest('/attendance/check-in', {
             method: 'POST',
-            body: JSON.stringify({ note })
+            body: JSON.stringify({ note, networkInfo, publicIp })
         });
     },
 

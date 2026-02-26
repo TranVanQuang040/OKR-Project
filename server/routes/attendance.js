@@ -31,6 +31,9 @@ router.post('/check-in', authMiddleware, async (req, res) => {
     }
 
     const lateMinutes = calcLateMinutes(now);
+    const localIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.connection?.remoteAddress || '';
+    const clientIp = req.body?.publicIp || localIp;
+    const ua = req.headers['user-agent'] || '';
     const attendance = await Attendance.create({
       userId: req.user.id,
       userName: req.user.name,
@@ -39,7 +42,14 @@ router.post('/check-in', authMiddleware, async (req, res) => {
       checkInAt: now,
       status: lateMinutes > 0 ? 'LATE' : 'PRESENT',
       lateMinutes,
-      note: req.body?.note || ''
+      note: req.body?.note || '',
+      ipAddress: clientIp,
+      userAgent: ua,
+      networkInfo: {
+        type: req.body?.networkInfo?.type || '',
+        wifiName: req.body?.networkInfo?.wifiName || '',
+        effectiveType: req.body?.networkInfo?.effectiveType || ''
+      }
     });
 
     res.json(attendance);

@@ -16,8 +16,11 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
   if (res.status === 401) {
     safeStorage.removeItem('okr_auth_token');
     safeStorage.removeItem('okr_session_user');
-    window.location.href = '/login';
-    return;
+    // Don't redirect here - let ProtectedRoute handle the redirect
+    // window.location.href was causing infinite reload loops with HashRouter
+    const err = new Error('Unauthorized');
+    (err as any).status = 401;
+    throw err;
   }
 
   const text = await res.text();

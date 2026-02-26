@@ -41,31 +41,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(updated);
         }
       }
-    } catch (err) {
-      // fallback: use local data
-      const users = (await dataService.getUsers()) as any;
-      setAllUsers(users);
-      if (user) {
-        const updated = users.find((u: any) => u.id === user.id || u._id === user.id || u.email === user.email);
-        if (updated) {
-          safeStorage.setItem('okr_session_user', JSON.stringify(updated));
-          setUser(updated);
+    } catch (err: any) {
+      // Re-throw auth errors so caller can handle session invalidation
+      if (err?.status === 401 || err?.status === 403) {
+        throw err;
+      }
+      // For network errors, try localStorage fallback
+      try {
+        const data = safeStorage.getItem('okr_pro_data_users');
+        if (data) {
+          const users = JSON.parse(data);
+          setAllUsers(users);
         }
+      } catch (e) {
+        // ignore localStorage parse errors
       }
     }
   };
 
   useEffect(() => {
-    const init = () => {
+    const init = async () => {
       const savedUser = safeStorage.getItem('okr_session_user');
       if (savedUser) {
-        setUser(JSON.parse(savedUser));
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch (e) {
+          safeStorage.removeItem('okr_session_user');
+        }
       }
 
       const savedPeriod = safeStorage.getItem('okr_selected_period');
-      if (savedPeriod) setSelectedPeriod(JSON.parse(savedPeriod));
+      if (savedPeriod) {
+        try {
+          setSelectedPeriod(JSON.parse(savedPeriod));
+        } catch (e) { /* ignore */ }
+      }
 
-      refreshUsers();
+      try {
+        await refreshUsers();
+      } catch (err: any) {
+        // If 401, the token is expired/invalid - clear user session
+        if (err?.status === 401) {
+          setUser(null);
+          safeStorage.removeItem('okr_session_user');
+          safeStorage.removeItem('okr_auth_token');
+        }
+      }
       setIsLoading(false);
     };
     init();

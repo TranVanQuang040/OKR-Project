@@ -11,6 +11,13 @@ const AttendanceSchema = new mongoose.Schema({
   lateMinutes: { type: Number, default: 0, min: 0 },
   totalWorkMinutes: { type: Number, default: 0, min: 0 },
   note: { type: String, default: '' },
+  ipAddress: { type: String, default: '' },
+  userAgent: { type: String, default: '' },
+  networkInfo: {
+    type: { type: String, default: '' },
+    wifiName: { type: String, default: '' },
+    effectiveType: { type: String, default: '' }
+  },
   location: {
     type: { type: String, default: 'Point' },
     coordinates: { type: [Number], default: [0, 0] }

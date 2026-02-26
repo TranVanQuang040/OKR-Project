@@ -4,8 +4,22 @@ import { useAuth } from '../context/AuthContext';
 import { attendanceService, AttendanceRecord, AttendanceStatus } from '../services/attendanceService';
 import { getDepartments } from '../services/departmentService';
 
+// Helper to get dateKey string YYYY-MM-DD
+function getDateKey(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function getDateOffset(offset: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return getDateKey(d);
+}
+
 export const Attendance: React.FC = () => {
-    const { user } = useAuth();
+    const { user, allUsers } = useAuth();
     const [status, setStatus] = useState<AttendanceStatus | null>(null);
     const [history, setHistory] = useState<AttendanceRecord[]>([]);
     const [todayTeam, setTodayTeam] = useState<AttendanceRecord[]>([]);
@@ -14,7 +28,27 @@ export const Attendance: React.FC = () => {
     const [note, setNote] = useState('');
     const [activeTab, setActiveTab] = useState<'personal' | 'team'>('personal');
     const [departments, setDepartments] = useState<any[]>([]);
-    const [selectedDept, setSelectedDept] = useState(user?.department || '');
+    const [selectedDept, setSelectedDept] = useState(user?.role === 'ADMIN' ? '' : (user?.department || ''));
+    // Date filter state
+    const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | '2days' | 'custom'>('today');
+    const [customDate, setCustomDate] = useState(getDateKey(new Date()));
+    const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
+
+    const getSelectedDateKey = (): string => {
+        switch (dateFilter) {
+            case 'today': return getDateOffset(0);
+            case 'yesterday': return getDateOffset(-1);
+            case '2days': return getDateOffset(-2);
+            case 'custom': return customDate;
+            default: return getDateOffset(0);
+        }
+    };
+
+    const getDateLabel = (): string => {
+        const dk = getSelectedDateKey();
+        const [y, m, d] = dk.split('-');
+        return `${d}/${m}/${y}`;
+    };
 
     useEffect(() => {
         loadData();
@@ -22,6 +56,13 @@ export const Attendance: React.FC = () => {
             loadDepartments();
         }
     }, [user]);
+
+    // Reload team data when date filter or department changes
+    useEffect(() => {
+        if (user?.role !== 'EMPLOYEE' && !loading) {
+            loadTeamData();
+        }
+    }, [dateFilter, customDate, selectedDept]);
 
     const loadData = async () => {
         setLoading(true);
@@ -34,13 +75,22 @@ export const Attendance: React.FC = () => {
             setHistory(historyRes);
 
             if (user?.role !== 'EMPLOYEE') {
-                const teamRes = await attendanceService.getTodayAttendance(undefined, selectedDept);
-                setTodayTeam(teamRes);
+                await loadTeamData();
             }
         } catch (err) {
             console.error('Failed to load attendance data', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadTeamData = async () => {
+        try {
+            const dk = getSelectedDateKey();
+            const teamRes = await attendanceService.getTodayAttendance(dk, selectedDept || undefined);
+            setTodayTeam(teamRes);
+        } catch (err) {
+            console.error('Failed to load team attendance', err);
         }
     };
 
@@ -79,6 +129,12 @@ export const Attendance: React.FC = () => {
         }
     };
 
+    // Find user email from allUsers list
+    const findUserEmail = (userId: string): string => {
+        const u = allUsers.find((u: any) => (u.id === userId || u._id === userId));
+        return u?.email || '';
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -96,6 +152,20 @@ export const Attendance: React.FC = () => {
     const formatDate = (dateKey: string) => {
         const [y, m, d] = dateKey.split('-');
         return `${d}/${m}/${y}`;
+    };
+
+    const formatWorkTime = (mins?: number) => {
+        if (!mins) return '--';
+        return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    };
+
+    const statusLabel = (s: string) => {
+        switch (s) {
+            case 'PRESENT': return 'Đúng giờ';
+            case 'LATE': return 'Đi muộn';
+            case 'HALF_DAY': return 'Nửa ngày';
+            default: return s;
+        }
     };
 
     return (
@@ -317,76 +387,157 @@ export const Attendance: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-wider">Tình hình nhân sự hôm nay</h4>
-                                        <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl">
+                                    {/* Header with title */}
+                                    <div className="flex flex-col gap-4">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                            <h4 className="text-sm font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                                                <span className="material-icons text-base">calendar_today</span>
+                                                Điểm danh ngày {getDateLabel()}
+                                            </h4>
+                                            <div className="flex items-center space-x-2">
+                                                <button onClick={loadTeamData} className="p-2 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Tải lại">
+                                                    <span className="material-icons text-lg">refresh</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Date Filter Buttons */}
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                                                {[
+                                                    { key: 'today' as const, label: 'Hôm nay' },
+                                                    { key: 'yesterday' as const, label: 'Hôm qua' },
+                                                    { key: '2days' as const, label: 'Hôm kia' },
+                                                    { key: 'custom' as const, label: 'Tùy chọn' },
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.key}
+                                                        onClick={() => setDateFilter(opt.key)}
+                                                        className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${dateFilter === opt.key
+                                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'
+                                                            }`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {dateFilter === 'custom' && (
+                                                <input
+                                                    type="date"
+                                                    value={customDate}
+                                                    onChange={(e) => setCustomDate(e.target.value)}
+                                                    className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                />
+                                            )}
+
+                                            {/* Department Filter */}
                                             <select
                                                 value={selectedDept}
                                                 onChange={(e) => setSelectedDept(e.target.value)}
-                                                className="bg-transparent text-xs font-bold text-slate-600 outline-none px-3 py-1"
+                                                className="px-3 py-2 bg-slate-100 text-xs font-bold text-slate-600 outline-none rounded-xl border border-slate-200"
                                             >
                                                 <option value="">Tất cả phòng ban</option>
-                                                {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                                                {departments.map(d => <option key={d.id || d._id} value={d.name}>{d.name}</option>)}
                                             </select>
-                                            <button onClick={loadData} className="p-1 hover:text-indigo-600">
-                                                <span className="material-icons text-lg">refresh</span>
-                                            </button>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                    {/* Summary Cards */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                         <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                                            <p className="text-[10px] font-black text-indigo-400 uppercase">Đã check-in</p>
+                                            <p className="text-[10px] font-black text-indigo-400 uppercase">Tổng check-in</p>
                                             <p className="text-2xl font-black text-indigo-900">{todayTeam.length}</p>
+                                        </div>
+                                        <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                            <p className="text-[10px] font-black text-emerald-400 uppercase">Đúng giờ</p>
+                                            <p className="text-2xl font-black text-emerald-900">{todayTeam.filter(t => t.status === 'PRESENT').length}</p>
                                         </div>
                                         <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
                                             <p className="text-[10px] font-black text-amber-400 uppercase">Đi muộn</p>
                                             <p className="text-2xl font-black text-amber-900">{todayTeam.filter(t => t.status === 'LATE').length}</p>
                                         </div>
-                                        <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-                                            <p className="text-[10px] font-black text-emerald-400 uppercase">Check-out sớm</p>
-                                            <p className="text-2xl font-black text-emerald-900">{todayTeam.filter(t => t.status === 'HALF_DAY').length}</p>
+                                        <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
+                                            <p className="text-[10px] font-black text-purple-400 uppercase">Đã check-out</p>
+                                            <p className="text-2xl font-black text-purple-900">{todayTeam.filter(t => t.checkOutAt).length}</p>
                                         </div>
                                     </div>
 
+                                    {/* Full Detail Table */}
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left">
                                             <thead>
                                                 <tr className="border-b border-slate-100">
-                                                    <th className="pb-4 font-black text-slate-400 text-[10px] uppercase">Nhân viên</th>
-                                                    <th className="pb-4 font-black text-slate-400 text-[10px] uppercase">Phòng ban</th>
-                                                    <th className="pb-4 font-black text-slate-400 text-[10px] uppercase">Vào lúc</th>
-                                                    <th className="pb-4 font-black text-slate-400 text-[10px] uppercase">Trạng thái</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Nhân viên</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Phòng ban</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Vào lúc</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Ra lúc</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Tổng TG</th>
+                                                    <th className="pb-4 pr-3 font-black text-slate-400 text-[10px] uppercase">Trạng thái</th>
+                                                    <th className="pb-4 font-black text-slate-400 text-[10px] uppercase">Ghi chú</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
                                                 {todayTeam.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={4} className="py-20 text-center text-slate-400 font-bold">Chưa có ai check-in hôm nay.</td>
+                                                        <td colSpan={7} className="py-20 text-center text-slate-400 font-bold">
+                                                            <span className="material-icons text-4xl text-slate-200 block mb-3">event_busy</span>
+                                                            Chưa có ai điểm danh ngày {getDateLabel()}.
+                                                        </td>
                                                     </tr>
                                                 ) : (
-                                                    todayTeam.map((rec) => (
-                                                        <tr key={rec._id} className="group hover:bg-slate-50 transition-colors">
-                                                            <td className="py-4">
-                                                                <div className="flex items-center space-x-3">
-                                                                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
-                                                                        {rec.userName.charAt(0)}
+                                                    todayTeam.map((rec) => {
+                                                        const email = findUserEmail(rec.userId);
+                                                        return (
+                                                            <tr key={rec._id} className="group hover:bg-slate-50/80 transition-colors cursor-pointer" onClick={() => setSelectedRecord(rec)}>
+                                                                <td className="py-4 pr-3">
+                                                                    <div className="flex items-center space-x-3">
+                                                                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-xs shadow-sm">
+                                                                            {rec.userName.charAt(0).toUpperCase()}
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="font-bold text-slate-800 text-sm">{rec.userName}</p>
+                                                                            {email && <p className="text-[11px] text-slate-400">{email}</p>}
+                                                                        </div>
                                                                     </div>
-                                                                    <span className="font-bold text-slate-700 text-sm">{rec.userName}</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-4 text-xs font-bold text-slate-500 italic">{rec.department || '--'}</td>
-                                                            <td className="py-4 text-sm font-medium text-slate-500 tabular-nums">{formatTime(rec.checkInAt)}</td>
-                                                            <td className="py-4">
-                                                                <span className={`px-3 py-1 rounded-lg text-[10px] font-black 
-                                  ${rec.status === 'PRESENT' ? 'bg-emerald-50 text-emerald-600' :
-                                                                        rec.status === 'LATE' ? 'bg-amber-50 text-amber-600' :
-                                                                            'bg-indigo-50 text-indigo-600'}`}>
-                                                                    {rec.status}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ))
+                                                                </td>
+                                                                <td className="py-4 pr-3">
+                                                                    <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">{rec.department || '--'}</span>
+                                                                </td>
+                                                                <td className="py-4 pr-3 text-sm font-medium text-slate-600 tabular-nums">
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="material-icons text-emerald-400 text-sm">login</span>
+                                                                        {formatTime(rec.checkInAt)}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="py-4 pr-3 text-sm font-medium text-slate-600 tabular-nums">
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="material-icons text-slate-300 text-sm">logout</span>
+                                                                        {formatTime(rec.checkOutAt)}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="py-4 pr-3 text-sm font-bold text-slate-700 tabular-nums">
+                                                                    {formatWorkTime(rec.totalWorkMinutes)}
+                                                                </td>
+                                                                <td className="py-4 pr-3">
+                                                                    <span className={`px-3 py-1 rounded-lg text-[10px] font-black ${rec.status === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                                                        rec.status === 'LATE' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                                            'bg-purple-50 text-purple-600 border border-purple-100'
+                                                                        }`}>
+                                                                        {statusLabel(rec.status)}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="py-4 max-w-[160px]">
+                                                                    {rec.note ? (
+                                                                        <p className="text-xs text-slate-500 truncate" title={rec.note}>{rec.note}</p>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-300 italic">--</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>
@@ -397,6 +548,135 @@ export const Attendance: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Detail Modal */}
+            {selectedRecord && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={() => setSelectedRecord(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
+                        {/* Modal Header */}
+                        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-8 -mt-8"></div>
+                            <div className="flex items-center justify-between relative z-10">
+                                <div className="flex items-center space-x-4">
+                                    <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-white font-black text-xl backdrop-blur-sm">
+                                        {selectedRecord.userName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-black">{selectedRecord.userName}</h3>
+                                        <p className="text-indigo-100 text-sm font-medium">{findUserEmail(selectedRecord.userId) || 'N/A'}</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setSelectedRecord(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
+                                    <span className="material-icons">close</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 space-y-5">
+                            {/* Basic Info Row */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-slate-50 p-4 rounded-2xl">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Phòng ban</p>
+                                    <p className="text-sm font-bold text-slate-700">{selectedRecord.department || '--'}</p>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded-2xl">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Ngày</p>
+                                    <p className="text-sm font-bold text-slate-700">{formatDate(selectedRecord.dateKey)}</p>
+                                </div>
+                            </div>
+
+                            {/* Time Info */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                    <p className="text-[10px] font-black text-emerald-400 uppercase mb-1">Check-in</p>
+                                    <p className="text-lg font-black text-emerald-700">{formatTime(selectedRecord.checkInAt)}</p>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Check-out</p>
+                                    <p className="text-lg font-black text-slate-700">{formatTime(selectedRecord.checkOutAt)}</p>
+                                </div>
+                                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                                    <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">Tổng TG</p>
+                                    <p className="text-lg font-black text-indigo-700">{formatWorkTime(selectedRecord.totalWorkMinutes)}</p>
+                                </div>
+                            </div>
+
+                            {/* Status */}
+                            <div className="flex items-center gap-3">
+                                <span className={`px-4 py-2 rounded-xl text-xs font-black ${selectedRecord.status === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                    selectedRecord.status === 'LATE' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                        'bg-purple-50 text-purple-600 border border-purple-100'
+                                    }`}>
+                                    {statusLabel(selectedRecord.status)}
+                                </span>
+                                {selectedRecord.lateMinutes > 0 && (
+                                    <span className="text-xs font-bold text-amber-500">Muộn {selectedRecord.lateMinutes} phút</span>
+                                )}
+                            </div>
+
+                            {/* Network & Device Info */}
+                            <div className="border-t border-slate-100 pt-5">
+                                <h4 className="text-xs font-black text-slate-400 uppercase mb-3 flex items-center gap-2">
+                                    <span className="material-icons text-sm">wifi</span>
+                                    Thông tin mạng & thiết bị
+                                </h4>
+                                <div className="space-y-3">
+                                    <div className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl">
+                                        <span className="material-icons text-slate-400 text-lg mt-0.5">language</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase">Địa chỉ IP Public</p>
+                                            <p className="text-sm font-bold text-slate-700 font-mono">{selectedRecord.ipAddress || 'Chưa ghi nhận'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl">
+                                        <span className="material-icons text-slate-400 text-lg mt-0.5">wifi</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase">Loại kết nối mạng</p>
+                                            <p className="text-sm font-bold text-slate-700">
+                                                {(() => {
+                                                    const t = selectedRecord.networkInfo?.type;
+                                                    const et = selectedRecord.networkInfo?.effectiveType;
+                                                    const typeMap: Record<string, string> = { wifi: 'WiFi', ethernet: 'Dây (Ethernet)', cellular: 'Di động (3G/4G/5G)', none: 'Không kết nối', bluetooth: 'Bluetooth' };
+                                                    const speedMap: Record<string, string> = { 'slow-2g': 'Rất chậm (2G)', '2g': 'Chậm (2G)', '3g': 'Trung bình (3G)', '4g': 'Nhanh (4G/WiFi)' };
+                                                    const typeName = t ? (typeMap[t] || t) : '';
+                                                    const speedName = et ? (speedMap[et] || et) : '';
+                                                    if (typeName && speedName) return `${typeName} — ${speedName}`;
+                                                    if (typeName) return typeName;
+                                                    if (speedName) return speedName;
+                                                    return 'Chưa ghi nhận';
+                                                })()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl">
+                                        <span className="material-icons text-slate-400 text-lg mt-0.5">devices</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase">Thiết bị (User Agent)</p>
+                                            <p className="text-xs text-slate-500 break-all leading-relaxed">{selectedRecord.userAgent || 'Không có dữ liệu'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Note */}
+                            {selectedRecord.note && (
+                                <div className="border-t border-slate-100 pt-4">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Ghi chú</p>
+                                    <p className="text-sm text-slate-600 bg-slate-50 p-4 rounded-xl">{selectedRecord.note}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t border-slate-100 flex justify-end">
+                            <button onClick={() => setSelectedRecord(null)} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-colors">
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
